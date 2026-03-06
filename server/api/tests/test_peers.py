@@ -288,3 +288,83 @@ async def test_unauthorized_with_wrong_token(client: AsyncClient):
     bad_headers = {"Authorization": "Bearer this.is.not.a.valid.jwt"}
     resp = await client.get("/peers", headers=bad_headers)
     assert resp.status_code == 401, f"Expected 401, got {resp.status_code}"
+
+
+# ── Required named tests (task spec) ─────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_create_peer_returns_201(client: AsyncClient, admin_headers: dict):
+    """POST /peers → 201 with {id, tunnel_ip, public_key}."""
+    keypair_results = _mock_keypair()
+    with (
+        patch("services.wireguard.subprocess.run") as mock_run,
+        patch("routers.peers.sync_wireguard"),
+    ):
+        mock_run.side_effect = keypair_results
+        resp = await client.post(
+            "/peers",
+            json={"name": "spec-peer-201", "allowed_ips": "10.8.0.0/24"},
+            headers=admin_headers,
+        )
+    assert resp.status_code == 201, f"Expected 201, got {resp.status_code}: {resp.text}"
+    data = resp.json()
+    assert "id" in data
+    assert "tunnel_ip" in data
+    assert "public_key" in data
+
+
+@pytest.mark.anyio
+async def test_peer_config_has_interface_and_peer(client: AsyncClient, admin_headers: dict):
+    """GET /peers/{id}/config contains [Interface] and [Peer] sections."""
+    list_resp = await client.get("/peers", headers=admin_headers)
+    assert list_resp.status_code == 200
+    peers = list_resp.json()
+    assert len(peers) >= 1
+    peer_id = peers[0]["id"]
+    resp = await client.get(f"/peers/{peer_id}/config", headers=admin_headers)
+    assert resp.status_code == 200
+    config_text = resp.text
+    assert "[Interface]" in config_text, "Config must contain [Interface]"
+    assert "[Peer]" in config_text, "Config must contain [Peer]"
+
+
+@pytest.mark.anyio
+async def test_delete_peer_returns_204(client: AsyncClient, admin_headers: dict):
+    """DELETE /peers/{id} → 204."""
+    keypair_results = _mock_keypair()
+    with (
+        patch("services.wireguard.subprocess.run") as mock_run,
+        patch("routers.peers.sync_wireguard"),
+    ):
+        mock_run.side_effect = keypair_results
+        create_resp = await client.post(
+            "/peers",
+            json={"name": "spec-peer-delete-204", "allowed_ips": "10.8.0.0/24"},
+            headers=admin_headers,
+        )
+    assert create_resp.status_code == 201
+    peer_id = create_resp.json()["id"]
+    with patch("routers.peers.sync_wireguard"):
+        del_resp = await client.delete(f"/peers/{peer_id}", headers=admin_headers)
+    assert del_resp.status_code == 204, f"Expected 204, got {del_resp.status_code}: {del_resp.text}"
+
+
+@pytest.mark.anyio
+async def test_tunnel_ip_in_range(client: AsyncClient, admin_headers: dict):
+    """Tunnel IP assigned to new peer is in range 10.8.0.2–10.8.0.20."""
+    keypair_results = _mock_keypair()
+    with (
+        patch("services.wireguard.subprocess.run") as mock_run,
+        patch("routers.peers.sync_wireguard"),
+    ):
+        mock_run.side_effect = keypair_results
+        resp = await client.post(
+            "/peers",
+            json={"name": "spec-peer-ip-range", "allowed_ips": "10.8.0.0/24"},
+            headers=admin_headers,
+        )
+    assert resp.status_code == 201
+    tunnel_ip = resp.json()["tunnel_ip"]
+    assert tunnel_ip.startswith("10.8.0."), f"Expected 10.8.0.x but got {tunnel_ip}"
+    last_octet = int(tunnel_ip.split(".")[-1])
+    assert 2 <= last_octet <= 20, f"Tunnel IP octet {last_octet} not in range 2-20"
