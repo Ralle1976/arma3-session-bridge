@@ -104,12 +104,23 @@ function App() {
     const unlisten_connect = listen('tray-connect', () => connect())
     const unlisten_disconnect = listen('tray-disconnect', () => disconnect())
 
+    // Auto-reconnect events from background Rust task
+    const unlisten_reconnected = listen<string>('vpn-reconnected', (event) => {
+      setVpnConnected(true)
+      setStatusMessage(`VPN auto-reconnected — Tunnel IP: ${event.payload}`)
+    })
+    const unlisten_reconnect_failed = listen<string>('vpn-reconnect-failed', (event) => {
+      setError(`VPN auto-reconnect failed: ${event.payload}`)
+    })
+
     const interval = setInterval(checkStatus, 30_000)
 
     return () => {
       clearInterval(interval)
       unlisten_connect.then((f) => f())
       unlisten_disconnect.then((f) => f())
+      unlisten_reconnected.then((f) => f())
+      unlisten_reconnect_failed.then((f) => f())
     }
   }, [configValid, checkStatus, connect, disconnect])
 
