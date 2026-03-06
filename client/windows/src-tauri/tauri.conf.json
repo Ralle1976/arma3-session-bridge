@@ -14,8 +14,6 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "productName": "Arma3 Session Bridge",
-    "identifier": "cloud.ralle1976.arma3-session-bridge",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -23,17 +21,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "nsis": {
-      "installMode": "perMachine",
-      "license": "../LICENSE.txt",
-      "preinstallSection": "!include \"nsis\\hooks.nsh\"\n!insertmacro customInstall",
-      "startMenuFolder": "Arma3 Session Bridge",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
-    },
     "windows": {
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "nsis": {
+        "installMode": "perMachine",
+        "startMenuFolder": "Arma3 Session Bridge"
+      }
     },
     "resources": {}
   },
