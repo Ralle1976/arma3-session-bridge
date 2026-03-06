@@ -46,11 +46,14 @@ async def _next_tunnel_ip(conn) -> str:
     Raises:
         HTTPException 503: if all 19 slots are occupied.
     """
+    # Check ALL peers (including revoked) — tunnel_ip has a UNIQUE DB constraint,
+    # so revoked IPs can only be reused if the old row is deleted (not our approach).
+    # Instead we assign IPs from the pool to new peers only from unoccupied slots.
     cursor = await conn.execute(
-        "SELECT tunnel_ip FROM peers WHERE revoked = 0 ORDER BY tunnel_ip"
+        "SELECT tunnel_ip FROM peers ORDER BY tunnel_ip"
     )
     rows = await cursor.fetchall()
-    used = {row["tunnel_ip"] for row in rows}
+    used = {row["tunnel_ip"] for row in rows}  # all IPs in DB (active + revoked)
 
     for last_octet in range(_PEER_IP_START, _PEER_IP_END + 1):
         candidate = f"{_TUNNEL_BASE}{last_octet}"
@@ -113,7 +116,7 @@ async def create_peer(
     Note: The private_key is included in the response ONCE and never stored.
     The client must save it to generate their .conf file later.
     """
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         # Check name uniqueness
         cursor = await conn.execute(
             "SELECT id FROM peers WHERE name = ? AND revoked = 0", (body.name,)
@@ -202,7 +205,7 @@ async def list_peers(
 ) -> list[PeerResponse]:
     """Return all peers. By default only active (non-revoked) peers are returned.
     Pass `?include_revoked=true` to include revoked peers."""
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         if include_revoked:
             cursor = await conn.execute("SELECT * FROM peers ORDER BY id")
         else:
@@ -230,7 +233,7 @@ async def get_peer(
     _admin: Annotated[dict, Depends(get_admin_user)],
 ) -> PeerResponse:
     """Fetch a peer by its integer ID."""
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         cursor = await conn.execute("SELECT * FROM peers WHERE id = ?", (peer_id,))
         row = await cursor.fetchone()
 
@@ -262,7 +265,7 @@ async def revoke_peer(
     1. Marks peer as revoked in DB
     2. Calls wg syncconf to remove from WireGuard without downtime
     """
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         cursor = await conn.execute(
             "SELECT id, name FROM peers WHERE id = ? AND revoked = 0", (peer_id,)
         )
@@ -320,7 +323,7 @@ async def get_peer_config(
 
     The actual private key is returned ONCE at peer creation time via POST /peers.
     """
-    async with await get_connection() as conn:
+    async with get_connection() as conn:
         cursor = await conn.execute(
             "SELECT * FROM peers WHERE id = ? AND revoked = 0", (peer_id,)
         )

@@ -17,25 +17,32 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret-at-least-32-chars-long-peer
 os.environ.setdefault("DB_PATH", "/tmp/arma3-test-peers.db")
 
 from main import app  # noqa: E402
+from database import init_db  # noqa: E402
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 BASE_URL = "http://test"
 
+import uuid
+
+_keypair_counter = 0
+
 
 def _mock_keypair():
-    """Fake wg keypair subprocess calls."""
+    """Fake wg keypair subprocess calls — generates unique keys each invocation."""
+    global _keypair_counter
+    _keypair_counter += 1
+    uid = f"{_keypair_counter:04d}{uuid.uuid4().hex[:8]}"
     # generate_keypair calls subprocess.run twice: genkey, then pubkey
     genkey_result = MagicMock()
-    genkey_result.stdout = "fakeprivatekey1234567890ABCDEFGH="
+    genkey_result.stdout = f"fakePrivKey{uid}ABCDEFGH="
     genkey_result.returncode = 0
 
     pubkey_result = MagicMock()
-    pubkey_result.stdout = "fakepublickey1234567890ABCDEFGHIJ="
+    pubkey_result.stdout = f"fakePubKey{uid}ABCDEFGHIJ="
     pubkey_result.returncode = 0
 
     return [genkey_result, pubkey_result]
-
 
 def _mock_sync():
     """Fake docker cp + docker exec wg syncconf subprocess calls."""
@@ -47,16 +54,26 @@ def _mock_sync():
 
 
 async def _get_admin_token(client: AsyncClient) -> str:
-    """Log in and return admin Bearer token."""
+    """Log in and return admin Bearer token.
+
+    Uses the ADMIN_PASSWORD from the main module (not os.environ) to avoid
+    issues when other test modules overwrite os.environ['ADMIN_PASSWORD'].
+    """
+    import main as _main
     resp = await client.post(
         "/auth/login",
-        json={"password": os.environ["ADMIN_PASSWORD"]},
+        json={"password": _main.ADMIN_PASSWORD},
     )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return resp.json()["access_token"]
 
-
 # ── Fixtures ───────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module", autouse=True)
+async def setup_db():
+    """Initialize DB tables before any test in this module runs."""
+    await init_db()
 
 
 @pytest.fixture(scope="module")
