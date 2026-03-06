@@ -312,7 +312,6 @@ async def revoke_peer(
 )
 async def get_peer_config(
     peer_ref: str,
-    _admin: Annotated[dict, Depends(get_admin_user)],
 ) -> PlainTextResponse:
     """Return the WireGuard client .conf file for a peer.
 
