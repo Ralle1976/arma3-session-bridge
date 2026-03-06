@@ -31,7 +31,7 @@ def generate_keypair() -> tuple[str, str]:
     try:
         # Generate private key
         private_result = subprocess.run(
-            ["wg", "genkey"],
+            ["docker", "exec", WG_CONTAINER, "wg", "genkey"],
             capture_output=True,
             text=True,
             check=True,
@@ -41,7 +41,7 @@ def generate_keypair() -> tuple[str, str]:
 
         # Derive public key from private key
         public_result = subprocess.run(
-            ["wg", "pubkey"],
+            ["docker", "exec", WG_CONTAINER, "wg", "pubkey"],
             input=private_key,
             capture_output=True,
             text=True,
@@ -72,6 +72,7 @@ def _build_wg_conf(peers: list[dict]) -> str:
         f"PrivateKey = {server_private_key}",
         f"Address = {WG_SERVER_TUNNEL_IP}/24",
         f"ListenPort = {WG_LISTEN_PORT}",
+        "MTU = 1420",
         "",
     ]
     for peer in peers:
@@ -234,6 +235,7 @@ def build_client_config(
         f"PrivateKey = {private_key}\n"
         f"Address = {tunnel_ip}/24\n"
         f"DNS = 1.1.1.1\n"
+        f"MTU = 1420\n"
         f"\n"
         f"[Peer]\n"
         f"PublicKey = {server_pubkey}\n"
