@@ -2,25 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { TrayMenu } from './components/TrayMenu'
+import { SessionList } from './components/SessionList'
+import { HostSessionForm } from './components/HostSessionForm'
+import type { Session } from './components/SessionList'
 import './App.css'
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-interface SessionInfo {
-  id: number
-  peer_id: number
-  mission: string | null
-  map_name: string | null
-  player_count: number
-  started_at: string
-  ended_at: string | null
-  active: boolean
-}
-
-// ─── Constants ─────────────────────────────────────────────────────────────────
-
-const API_URL =
-  import.meta.env.VITE_API_URL ?? 'http://10.8.0.1:8001'
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const WG_CONF_PATH =
   import.meta.env.VITE_WG_CONF_PATH ??
@@ -29,16 +16,20 @@ const WG_CONF_PATH =
 const WG_TUNNEL_NAME =
   import.meta.env.VITE_WG_TUNNEL_NAME ?? 'arma3-session-bridge'
 
-// ─── App Component ─────────────────────────────────────────────────────────────
+// Active tab type for the main panel
+type ActiveTab = 'sessions' | 'host'
+
+// ─── App Component ──────────────────────────────────────────────────────────
 
 function App() {
   const [vpnConnected, setVpnConnected] = useState(false)
-  const [sessions, setSessions] = useState<SessionInfo[]>([])
+  const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('sessions')
 
-  // ── VPN actions ──────────────────────────────────────────────────────────────
+  // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
     setLoading(true)
@@ -71,10 +62,10 @@ function App() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const connected = await invoke<boolean>('check_vpn_status', {
+      const status = await invoke<{ connected: boolean; tunnel_ip: string | null }>('check_vpn_status', {
         tunnelName: WG_TUNNEL_NAME,
       })
-      setVpnConnected(connected)
+      setVpnConnected(status.connected)
     } catch (e) {
       setError(String(e))
     }
@@ -85,7 +76,8 @@ function App() {
     setLoading(true)
     setError(null)
     try {
-      const data = await invoke<SessionInfo[]>('get_sessions', { apiUrl: API_URL })
+      // get_sessions uses hardcoded API_BASE_URL on the Rust side
+      const data = await invoke<Session[]>('get_sessions')
       setSessions(data)
     } catch (e) {
       setError(String(e))
@@ -94,21 +86,14 @@ function App() {
     }
   }, [vpnConnected])
 
-  // ── Lifecycle ────────────────────────────────────────────────────────────────
+  // ── Lifecycle ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Check VPN status on startup
     checkStatus()
 
-    // Listen for tray-menu events emitted from Rust
-    const unlisten_connect = listen('tray-connect', () => {
-      connect()
-    })
-    const unlisten_disconnect = listen('tray-disconnect', () => {
-      disconnect()
-    })
+    const unlisten_connect = listen('tray-connect', () => connect())
+    const unlisten_disconnect = listen('tray-disconnect', () => disconnect())
 
-    // Poll VPN status every 30 seconds
     const interval = setInterval(checkStatus, 30_000)
 
     return () => {
@@ -118,14 +103,13 @@ function App() {
     }
   }, [checkStatus, connect, disconnect])
 
-  // Auto-refresh sessions when VPN connects
   useEffect(() => {
     if (vpnConnected) {
       refreshSessions()
     }
   }, [vpnConnected, refreshSessions])
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────
 
   return (
     <div className="app">
@@ -152,7 +136,7 @@ function App() {
       )}
       {error && <div className="status-message error">{error}</div>}
 
-      {/* Controls */}
+      {/* VPN Controls */}
       <section className="controls">
         <button
           className="btn btn-primary"
@@ -171,49 +155,44 @@ function App() {
         <button className="btn" onClick={checkStatus} disabled={loading}>
           Check Status
         </button>
+      </section>
+
+      {/* Tab navigation */}
+      <nav className="tab-nav">
         <button
-          className="btn"
-          onClick={refreshSessions}
-          disabled={loading || !vpnConnected}
+          className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`}
+          onClick={() => setActiveTab('sessions')}
         >
-          Refresh Sessions
+          🌍 Browse Sessions
         </button>
-      </section>
+        <button
+          className={`tab-btn ${activeTab === 'host' ? 'active' : ''}`}
+          onClick={() => setActiveTab('host')}
+        >
+          🚀 Host Session
+        </button>
+      </nav>
 
-      {/* Sessions */}
-      <section className="sessions">
-        <h2>Active Sessions ({sessions.filter((s) => s.active).length})</h2>
+      {/* Tab panels */}
+      {activeTab === 'sessions' && (
+        <SessionList
+          sessions={sessions}
+          vpnConnected={vpnConnected}
+          onRefresh={refreshSessions}
+          loading={loading}
+        />
+      )}
 
-        {!vpnConnected ? (
-          <p className="hint">Connect to VPN first to see sessions.</p>
-        ) : sessions.length === 0 ? (
-          <p className="hint">No active sessions found.</p>
-        ) : (
-          <ul className="session-list">
-            {sessions.map((session) => (
-              <li key={session.id} className={`session-item ${session.active ? 'active' : 'ended'}`}>
-                <span className="session-mission">
-                  {session.mission ?? 'Unknown Mission'}
-                </span>
-                <span className="session-map">
-                  {session.map_name ?? 'Unknown Map'}
-                </span>
-                <span className="session-players">
-                  {session.player_count} players
-                </span>
-                <span className="session-started">
-                  {new Date(session.started_at).toLocaleString()}
-                </span>
-                {!session.active && session.ended_at && (
-                  <span className="session-ended">
-                    Ended: {new Date(session.ended_at).toLocaleString()}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {activeTab === 'host' && (
+        <HostSessionForm
+          vpnConnected={vpnConnected}
+          onSessionCreated={(session) => {
+            setSessions((prev) => [session, ...prev])
+            setActiveTab('sessions')
+            setStatusMessage(`Hosting: ${session.mission_name} — share IP ${session.host_tunnel_ip} with players`)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -31,8 +31,11 @@ tauri = { version = "2", features = ["tray-icon"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# Async HTTP client — rustls avoids OpenSSL dependency on Windows
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Async HTTP client — rustls avoids OpenSSL dependency
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls"] }
+
+# Async runtime — tokio::time for heartbeat interval
+tokio = { version = "1", features = ["time"] }
 
 # ── Release profile — optimise for size (Windows installer) ──────────────────
 [profile.release]
