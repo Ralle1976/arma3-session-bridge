@@ -198,12 +198,22 @@ async def admin_stats(_admin: str = Depends(_require_admin)) -> AdminStats:
 )
 async def admin_events(
     request: Request,
-    _admin: str = Depends(_require_admin),
+    token: str | None = None,
+    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
 ) -> StreamingResponse:
     """Stream Server-Sent Events for live admin monitoring.
-
-    Events: peer_connected, peer_disconnected, session_created, session_ended
+    Accepts token via Authorization: Bearer header OR ?token= query param (for EventSource).
     """
+    # Resolve token: query param first (EventSource cannot set custom headers)
+    raw_token = token or (credentials.credentials if credentials else None)
+    if not raw_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token required")
+    try:
+        payload = jwt.decode(raw_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except JWTError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {exc}")
+    if payload.get("role") != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
 
     async def event_generator() -> AsyncGenerator[str, None]:
         q = subscribe()
