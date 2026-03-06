@@ -1,0 +1,43 @@
+[package]
+name = "arma3-session-bridge-client"
+version = "0.1.0"
+description = "Arma 3 Session Bridge — Windows Client (Tauri v2)"
+authors = ["YourGitHubUser <ralf.arnold@it-bfw.de>"]
+license = "MIT"
+repository = "https://github.com/YourGitHubUser/arma3-session-bridge"
+edition = "2021"
+rust-version = "1.77"
+
+# ── Library crate (used by integration tests and main binary) ─────────────────
+[lib]
+name = "arma3_session_bridge_client"
+crate-type = ["rlib"]
+
+# ── Binary ───────────────────────────────────────────────────────────────────
+[[bin]]
+name = "arma3-session-bridge-client"
+path = "src/main.rs"
+
+# ── Build dependencies ────────────────────────────────────────────────────────
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# ── Runtime dependencies ──────────────────────────────────────────────────────
+[dependencies]
+# Tauri v2 with system-tray support
+tauri = { version = "2", features = ["tray-icon"] }
+
+# Serialization (shared with frontend via Tauri commands)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Lightweight synchronous HTTP client (uses rustls, no system OpenSSL)
+ureq = { version = "2", features = ["json"] }
+
+# ── Release profile — optimise for size (Windows installer) ──────────────────
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
