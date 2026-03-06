@@ -3,7 +3,7 @@
 /// Shown when no valid WireGuard .conf is found on startup.
 ///
 /// Steps:
-///   1. Enter Bridge API URL (default: http://YOUR_SERVER_IP:8001)
+///   1. Enter Bridge API URL + Admin Password
 ///   2. Enter Peer Name / ID
 ///   3. Download .conf via GET /peers/{id}/config — validates Split-Tunnel before accepting
 
@@ -23,29 +23,47 @@ type Step = 1 | 2 | 3
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const DEFAULT_API_URL = 'http://YOUR_SERVER_IP:8001'
+const DEFAULT_API_URL = 'https://arma3-session-bridge.ralle1976.cloud/api'
 
 export function FirstRunWizard({ confPath, onComplete }: Props) {
   const [step, setStep] = useState<Step>(1)
   const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL)
+  const [adminPassword, setAdminPassword] = useState('')
   const [peerId, setPeerId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Step 3: Download + Validate ──────────────────────────────────────────
+  // ── Step 3: Login + Download + Validate ──────────────────────────────────
 
   const handleDownload = async () => {
     setLoading(true)
     setError(null)
     try {
-      // Download conf from API
+      const base = apiUrl.trim().replace(/\/$/, '')
+
+      // Step A: Login to get admin JWT
+      const loginRes = await fetch(`${base}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword }),
+      })
+      if (!loginRes.ok) {
+        setError(`Login failed (HTTP ${loginRes.status}): wrong admin password?`)
+        return
+      }
+      const loginData = await loginRes.json() as { access_token: string }
+      const token = loginData.access_token
+
+      // Step B: Download conf from API using Bearer token
+      // peer_id accepts both integer ID and peer name string
       await invoke('download_peer_config', {
-        apiUrl: apiUrl.trim().replace(/\/$/, ''),
+        apiUrl: base,
         peerId: peerId.trim(),
         savePath: confPath,
+        token,
       })
 
-      // Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24 (no full-tunnel)
+      // Step C: Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24 (no full-tunnel)
       const valid = await invoke<boolean>('validate_conf', { path: confPath })
       if (!valid) {
         setError(
@@ -81,7 +99,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
         <div className="wizard-steps">
           <div className={`wizard-step-dot ${step >= 1 ? 'done' : ''} ${step === 1 ? 'current' : ''}`}>
             <span>1</span>
-            <label>API URL</label>
+            <label>API + Password</label>
           </div>
           <div className="wizard-step-line" />
           <div className={`wizard-step-dot ${step >= 2 ? 'done' : ''} ${step === 2 ? 'current' : ''}`}>
@@ -98,7 +116,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
         {/* Error */}
         {error && <div className="wizard-error">⚠ {error}</div>}
 
-        {/* ── Step 1: API URL ─────────────────────────────────────────────── */}
+        {/* ── Step 1: API URL + Admin Password ─────────────────────────────── */}
         {step === 1 && (
           <div className="wizard-panel">
             <label className="wizard-label" htmlFor="wizard-api-url">
@@ -110,11 +128,22 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               type="url"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://YOUR_SERVER_IP:8001"
+              placeholder="https://arma3-session-bridge.ralle1976.cloud/api"
               autoFocus
             />
+            <label className="wizard-label" htmlFor="wizard-admin-pw" style={{ marginTop: '12px' }}>
+              Admin Password
+            </label>
+            <input
+              id="wizard-admin-pw"
+              className="wizard-input"
+              type="password"
+              value={adminPassword}
+              onChange={(e) => setAdminPassword(e.target.value)}
+              placeholder="Enter admin password"
+            />
             <p className="wizard-hint">
-              Default: <code>http://YOUR_SERVER_IP:8001</code>
+              The admin password is used to authenticate and download your peer config.
             </p>
             <div className="wizard-actions">
               <button
@@ -123,7 +152,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
                   setError(null)
                   setStep(2)
                 }}
-                disabled={!apiUrl.trim()}
+                disabled={!apiUrl.trim() || !adminPassword.trim()}
               >
                 Next →
               </button>
@@ -143,11 +172,11 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               type="text"
               value={peerId}
               onChange={(e) => setPeerId(e.target.value)}
-              placeholder="e.g. ralle-pc"
+              placeholder="e.g. ralle-arma3 or 2"
               autoFocus
             />
             <p className="wizard-hint">
-              Ask your server admin for your registered peer name.
+              Enter your peer name (e.g. <code>ralle-arma3</code>) or integer ID. Ask your server admin if unsure.
             </p>
             <div className="wizard-actions">
               <button className="btn" onClick={() => { setError(null); setStep(1) }}>

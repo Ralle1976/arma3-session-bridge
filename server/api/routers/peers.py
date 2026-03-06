@@ -299,7 +299,7 @@ async def revoke_peer(
 
 
 @router.get(
-    "/{peer_id}/config",
+    "/{peer_ref}/config",
     response_class=PlainTextResponse,
     summary="Get WireGuard client config (.conf file)",
     responses={
@@ -308,34 +308,36 @@ async def revoke_peer(
             "content": {"text/plain": {}},
         },
         404: {"description": "Peer not found"},
-        409: {"description": "Peer was created before private key storage; regenerate"},
     },
 )
 async def get_peer_config(
-    peer_id: int,
+    peer_ref: str,
     _admin: Annotated[dict, Depends(get_admin_user)],
 ) -> PlainTextResponse:
     """Return the WireGuard client .conf file for a peer.
 
-    NOTE: Private keys are never stored on the server. This endpoint returns
-    a config template with a PLACEHOLDER for the private key that the client
-    must fill in with their saved private key.
+    `peer_ref` can be either the integer peer ID or the peer name string.
 
-    The actual private key is returned ONCE at peer creation time via POST /peers.
+    NOTE: Private keys are never stored on the server. This endpoint returns
+    a config template with a PLACEHOLDER for the private key.
     """
     async with get_connection() as conn:
-        cursor = await conn.execute(
-            "SELECT * FROM peers WHERE id = ? AND revoked = 0", (peer_id,)
-        )
+        if peer_ref.isdigit():
+            cursor = await conn.execute(
+                "SELECT * FROM peers WHERE id = ? AND revoked = 0", (int(peer_ref),)
+            )
+        else:
+            cursor = await conn.execute(
+                "SELECT * FROM peers WHERE name = ? AND revoked = 0", (peer_ref,)
+            )
         row = await cursor.fetchone()
 
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Peer {peer_id} not found or revoked",
+            detail=f"Peer '{peer_ref}' not found or revoked",
         )
 
-    # Private key is NOT stored — return template with placeholder
     config = build_client_config(
         private_key="<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>",
         tunnel_ip=row["tunnel_ip"],
@@ -346,6 +348,6 @@ async def get_peer_config(
         content=config,
         media_type="text/plain",
         headers={
-            "Content-Disposition": f'attachment; filename="peer{peer_id}-{row["name"]}.conf"'
+            "Content-Disposition": f'attachment; filename="peer{row["id"]}-{row["name"]}.conf"'
         },
     )

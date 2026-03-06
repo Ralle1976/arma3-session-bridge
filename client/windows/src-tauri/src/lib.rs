@@ -322,10 +322,17 @@ async fn download_peer_config(
     api_url: String,
     peer_id: String,
     save_path: String,
+    token: Option<String>,
 ) -> Result<(), String> {
     let url = format!("{}/peers/{}/config", api_url.trim_end_matches('/'), peer_id);
 
-    let response = reqwest::get(&url)
+    let client = reqwest::Client::new();
+    let mut req = client.get(&url);
+    if let Some(ref t) = token {
+        req = req.header("Authorization", format!("Bearer {}", t));
+    }
+    let response = req
+        .send()
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;
 
