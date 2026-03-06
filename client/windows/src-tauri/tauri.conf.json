@@ -22,7 +22,6 @@
       "icons/icon.ico"
     ],
     "windows": {
-      "requestedExecutionLevel": "requireAdministrator",
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
       "nsis": {
