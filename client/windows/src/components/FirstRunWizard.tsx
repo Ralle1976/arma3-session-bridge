@@ -4,8 +4,7 @@
 ///
 /// Steps:
 ///   1. Enter Bridge API URL + Admin Password
-///   2. Enter Peer Name / ID
-///   3. Download .conf via GET /peers/{id}/config — validates Split-Tunnel before accepting
+///   2. Enter Peer Name → App generates WireGuard keypair locally & registers
 
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
@@ -15,11 +14,11 @@ import { invoke } from '@tauri-apps/api/core'
 interface Props {
   /** Absolute path where the .conf file will be saved */
   confPath: string
-  /** Called after a valid config has been downloaded & validated */
+  /** Called after peer has been registered and conf validated */
   onComplete: () => void
 }
 
-type Step = 1 | 2 | 3
+type Step = 1 | 2
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -33,9 +32,9 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Step 3: Login + Download + Validate ──────────────────────────────────
+  // ── Step 2: Login + Generate Keypair + Register + Validate ───────────────
 
-  const handleDownload = async () => {
+  const handleRegister = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -54,22 +53,20 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
       const loginData = await loginRes.json() as { access_token: string }
       const token = loginData.access_token
 
-      // Step B: Download conf from API using Bearer token
-      // peer_id accepts both integer ID and peer name string
-      await invoke('download_peer_config', {
+      // Step B: Generate keypair locally + register + write conf
+      await invoke('generate_and_register_peer', {
         apiUrl: base,
-        peerId: peerId.trim(),
+        peerName: peerId.trim(),
         savePath: confPath,
         token,
       })
 
-      // Step C: Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24 (no full-tunnel)
+      // Step C: Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24
       const valid = await invoke<boolean>('validate_conf', { path: confPath })
       if (!valid) {
         setError(
-          'Downloaded config is invalid. ' +
-            'It must contain [Interface] and AllowedIPs = 10.8.0.0/24. ' +
-            'Full-tunnel configs (0.0.0.0/0) are not allowed.',
+          'Generated config is invalid. ' +
+            'It must contain [Interface] and AllowedIPs = 10.8.0.0/24.',
         )
         return
       }
@@ -95,7 +92,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
           </p>
         </div>
 
-        {/* Step indicators */}
+        {/* Step indicators — 2 steps */}
         <div className="wizard-steps">
           <div className={`wizard-step-dot ${step >= 1 ? 'done' : ''} ${step === 1 ? 'current' : ''}`}>
             <span>1</span>
@@ -104,12 +101,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
           <div className="wizard-step-line" />
           <div className={`wizard-step-dot ${step >= 2 ? 'done' : ''} ${step === 2 ? 'current' : ''}`}>
             <span>2</span>
-            <label>Peer Name</label>
-          </div>
-          <div className="wizard-step-line" />
-          <div className={`wizard-step-dot ${step >= 3 ? 'done' : ''} ${step === 3 ? 'current' : ''}`}>
-            <span>3</span>
-            <label>Download</label>
+            <label>Register</label>
           </div>
         </div>
 
@@ -143,7 +135,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               placeholder="Enter admin password"
             />
             <p className="wizard-hint">
-              The admin password is used to authenticate and download your peer config.
+              The admin password is used to authenticate and register your peer automatically.
             </p>
             <div className="wizard-actions">
               <button
@@ -160,11 +152,11 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
           </div>
         )}
 
-        {/* ── Step 2: Peer Name ───────────────────────────────────────────── */}
+        {/* ── Step 2: Peer Name + Register ───────────────────────────────── */}
         {step === 2 && (
           <div className="wizard-panel">
             <label className="wizard-label" htmlFor="wizard-peer-id">
-              Your Peer Name / ID
+              Your Peer Name
             </label>
             <input
               id="wizard-peer-id"
@@ -172,67 +164,27 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               type="text"
               value={peerId}
               onChange={(e) => setPeerId(e.target.value)}
-              placeholder="e.g. ralle-arma3 or 2"
+              placeholder="e.g. ralle-arma3"
               autoFocus
             />
             <p className="wizard-hint">
-              Enter your peer name (e.g. <code>ralle-arma3</code>) or integer ID. Ask your server admin if unsure.
-            </p>
-            <div className="wizard-actions">
-              <button className="btn" onClick={() => { setError(null); setStep(1) }}>
-                ← Back
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setError(null)
-                  setStep(3)
-                }}
-                disabled={!peerId.trim()}
-              >
-                Next →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 3: Download Config ─────────────────────────────────────── */}
-        {step === 3 && (
-          <div className="wizard-panel">
-            <p className="wizard-summary">
-              Ready to download your WireGuard config:
-            </p>
-            <div className="wizard-info-box">
-              <div>
-                <strong>Endpoint:</strong>
-                <br />
-                <code>
-                  {apiUrl.trim().replace(/\/$/, '')}/peers/{peerId.trim()}/config
-                </code>
-              </div>
-              <div>
-                <strong>Save to:</strong>
-                <br />
-                <code>{confPath}</code>
-              </div>
-            </div>
-            <p className="wizard-hint">
-              Only Split-Tunnel configs (AllowedIPs = 10.8.0.0/24) are accepted.
+              Der Name muss eindeutig sein (z.B. <code>ralle-arma3</code>). Die App generiert
+              deinen VPN-Schlüssel automatisch.
             </p>
             <div className="wizard-actions">
               <button
                 className="btn"
-                onClick={() => { setError(null); setStep(2) }}
+                onClick={() => { setError(null); setStep(1) }}
                 disabled={loading}
               >
                 ← Back
               </button>
               <button
                 className="btn btn-primary"
-                onClick={handleDownload}
-                disabled={loading}
+                onClick={handleRegister}
+                disabled={!peerId.trim() || loading}
               >
-                {loading ? '⏳ Downloading…' : '⬇ Download & Validate Config'}
+                {loading ? '⏳ Registriere & lade Config...' : '✅ Register & Connect'}
               </button>
             </div>
           </div>

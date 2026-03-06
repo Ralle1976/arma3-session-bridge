@@ -115,3 +115,18 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+# ---------------------------------------------------------------------------
+# Peer Registration (Self-Service)
+# ---------------------------------------------------------------------------
+
+
+class PeerRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    public_key: str = Field(
+        ...,
+        min_length=44,
+        max_length=44,
+        description="Client-generated WireGuard public key (base64, 44 chars)",
+    )

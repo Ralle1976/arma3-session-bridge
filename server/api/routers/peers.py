@@ -22,7 +22,7 @@ from fastapi.responses import PlainTextResponse
 
 from auth import get_admin_user
 from database import get_connection
-from models import PeerCreate, PeerCreateResponse, PeerResponse
+from models import PeerCreate, PeerCreateResponse, PeerResponse, PeerRegisterRequest
 from services.wireguard import (
     build_client_config,
     generate_keypair,
@@ -293,6 +293,87 @@ async def revoke_peer(
         logger.info("Peer revoked: id=%s name=%s", peer_id, row["name"])
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+
+# ── POST /peers/register ───────────────────────────────────────────────────────
+
+
+@router.post(
+    "/register",
+    response_class=PlainTextResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Self-service peer registration — client provides its own public key",
+    responses={
+        201: {"description": "Peer registered. Returns ready-to-use WireGuard .conf"},
+        400: {"description": "Peer name already exists"},
+        503: {"description": "Tunnel IP pool exhausted"},
+    },
+)
+async def register_peer(
+    body: PeerRegisterRequest,
+    _admin: Annotated[dict, Depends(get_admin_user)],
+) -> PlainTextResponse:
+    """Self-service registration:
+    1. Validates name uniqueness
+    2. Assigns next free tunnel IP
+    3. Inserts peer into DB using the CLIENT-PROVIDED public_key (no server-side keygen)
+    4. Syncs WireGuard
+    5. Returns a ready-to-use .conf with the private key placeholder replaced by
+       <INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE> — the client substitutes its own
+       private key before saving (done by the Tauri generate_and_register_peer command).
+    """
+    async with get_connection() as conn:
+        # 1. Name uniqueness check
+        cursor = await conn.execute(
+            "SELECT id FROM peers WHERE name = ? AND revoked = 0", (body.name,)
+        )
+        if await cursor.fetchone():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Peer with name \'{body.name}\' already exists",
+            )
+
+        # 2. Assign tunnel IP
+        tunnel_ip = await _next_tunnel_ip(conn)
+
+        # 3. Insert peer — public_key comes from the client
+        now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        await conn.execute(
+            """
+            INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
+            VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            (body.name, body.public_key, tunnel_ip, "10.8.0.0/24", now),
+        )
+        await conn.commit()
+
+        # 4. Sync WireGuard
+        active_peers = await _get_active_peers(conn)
+        try:
+            sync_wireguard(active_peers)
+        except RuntimeError as exc:
+            logger.warning(
+                "wg syncconf failed after self-service registration: %s", exc
+            )
+
+        logger.info(
+            "Self-service peer registered: name=%s ip=%s pubkey=%s",
+            body.name, tunnel_ip, body.public_key[:12] + "...",
+        )
+
+        # 5. Build .conf template (private key placeholder — client fills it in)
+        config = build_client_config(
+            private_key="<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>",
+            tunnel_ip=tunnel_ip,
+            allowed_ips="10.8.0.0/24",
+        )
+
+    return PlainTextResponse(
+        content=config,
+        media_type="text/plain",
+        status_code=status.HTTP_201_CREATED,
+    )
 
 
 # ── GET /peers/{id}/config ─────────────────────────────────────────────────────
