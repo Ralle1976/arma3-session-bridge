@@ -364,30 +364,15 @@ async fn download_peer_config(
 
 // ─── Self-Service Peer Registration ───────────────────────────────────────────
 
-/// Find wg.exe in the standard WireGuard installation directories.
-fn find_wg_exe() -> Result<std::path::PathBuf, String> {
-    let candidates = [
-        r"C:\Program Files\WireGuard\wg.exe",
-        r"C:\Program Files (x86)\WireGuard\wg.exe",
-    ];
-    for c in &candidates {
-        let p = std::path::Path::new(c);
-        if p.exists() {
-            return Ok(p.to_path_buf());
-        }
-    }
-    Err("wg.exe not found. Please ensure WireGuard is installed.".to_string())
-}
-
-/// Generate a WireGuard keypair locally using wg.exe, register the peer at the
-/// server via POST /peers/register, and write the completed .conf to disk.
+/// Generate a WireGuard keypair in-process using x25519-dalek (no wg.exe needed),
+/// register the peer at the server via POST /peers/register, and write the
+/// completed .conf to disk.
 ///
 /// Flow:
-///   1. wg genkey  → private_key
-///   2. wg pubkey  → public_key  (stdin = private_key)
-///   3. POST {api_url}/peers/register { name, public_key }
-///   4. Replace placeholder in returned .conf with real private_key
-///   5. Write .conf to save_path
+///   1. Generate Curve25519 keypair locally (private + public key, base64)
+///   2. POST {api_url}/peers/register { name, public_key } with Bearer token
+///   3. Replace placeholder in returned .conf with real private_key
+///   4. Write .conf to save_path
 ///
 /// Invoked from frontend:
 ///   `invoke('generate_and_register_peer', { apiUrl, peerName, savePath, token })`
@@ -398,66 +383,25 @@ async fn generate_and_register_peer(
     save_path: String,
     token: String,
 ) -> Result<(), String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use rand::rngs::OsRng;
+    use x25519_dalek::{PublicKey, StaticSecret};
 
-    let wg = find_wg_exe()?;
+    // Generate WireGuard keypair in-process — no wg.exe required
+    let private_secret = StaticSecret::random_from_rng(OsRng);
+    let public_key = PublicKey::from(&private_secret);
+    let private_key_b64 = STANDARD.encode(private_secret.as_bytes());
+    let public_key_b64 = STANDARD.encode(public_key.as_bytes());
 
-    // Step 1: Generate private key
-    let genkey_out = Command::new(&wg)
-        .arg("genkey")
-        .output()
-        .map_err(|e| format!("Failed to run wg genkey: {e}"))?;
-    if !genkey_out.status.success() {
-        return Err(format!(
-            "wg genkey failed: {}",
-            String::from_utf8_lossy(&genkey_out.stderr)
-        ));
-    }
-    let private_key = String::from_utf8_lossy(&genkey_out.stdout)
-        .trim()
-        .to_string();
-
-    // Step 2: Derive public key from private key
-    let mut pubkey_proc = Command::new(&wg)
-        .arg("pubkey")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn wg pubkey: {e}"))?;
-
-    if let Some(mut stdin) = pubkey_proc.stdin.take() {
-        stdin
-            .write_all(private_key.as_bytes())
-            .map_err(|e| format!("Failed to write to wg pubkey stdin: {e}"))?;
-    }
-    let pubkey_out = pubkey_proc
-        .wait_with_output()
-        .map_err(|e| format!("wg pubkey wait failed: {e}"))?;
-    if !pubkey_out.status.success() {
-        return Err(format!(
-            "wg pubkey failed: {}",
-            String::from_utf8_lossy(&pubkey_out.stderr)
-        ));
-    }
-    let public_key = String::from_utf8_lossy(&pubkey_out.stdout)
-        .trim()
-        .to_string();
-
-    // Step 3: POST /peers/register
-    let url = format!(
-        "{}/peers/register",
-        api_url.trim_end_matches('/')
-    );
+    // Register peer on server
+    let url = format!("{}/peers/register", api_url.trim_end_matches('/'));
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .header("Content-Type", "application/json")
         .json(&serde_json::json!({
             "name": peer_name,
-            "public_key": public_key,
+            "public_key": public_key_b64,
         }))
         .send()
         .await
@@ -469,17 +413,15 @@ async fn generate_and_register_peer(
         return Err(format!("Registration failed (HTTP {}): {}", status, body));
     }
 
-    // Step 4: Get .conf template and substitute private key placeholder
+    // Server returns .conf template — replace placeholder with real private key
     let conf_template = response
         .text()
         .await
         .map_err(|e| format!("Failed to read registration response: {e}"))?;
-    let conf_content = conf_template.replace(
-        "<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>",
-        &private_key,
-    );
+    let conf_content = conf_template
+        .replace("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>", &private_key_b64);
 
-    // Step 5: Write .conf to disk
+    // Write .conf to disk
     if let Some(parent) = std::path::Path::new(&save_path).parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {e}"))?;
