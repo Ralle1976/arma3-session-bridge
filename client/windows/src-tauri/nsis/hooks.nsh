@@ -1,8 +1,8 @@
 ; =============================================================================
 ; Arma3 Session Bridge — NSIS Installer Hooks
 ; =============================================================================
-; Pre-Install:  Checks if WireGuard for Windows is installed.
-;               If not: opens WireGuard download page and aborts install.
+; Pre-Install:  Checks if WireGuard is installed.
+;               If missing: downloads + installs WireGuard silently (no user action).
 ; Post-Uninstall: Removes WireGuard tunnel "arma3-session-bridge".
 ; =============================================================================
 
@@ -24,33 +24,37 @@
 ; -----------------------------------------------------------------------------
 !macro customInstall
 
-  ; Find WireGuard
+  ; Check if WireGuard is already installed
   !insertmacro _FindWireGuard $R0
-
-  ; If WireGuard path is empty → not installed
   StrCmp $R0 "" wireguard_missing wireguard_ok
 
   wireguard_missing:
-    MessageBox MB_YESNO|MB_ICONINFORMATION \
-      "$(^Name) setzt WireGuard f$\u00fcr Windows voraus.$\n$\n\
-WireGuard ist auf diesem System nicht installiert.$\n$\n\
-M$\u00f6chtest du die WireGuard-Download-Seite jetzt $\u00f6ffnen?$\n$\n\
-Installiere WireGuard und starte anschlie$\u00dfend diesen Installer erneut." \
-      IDYES open_wg_page IDNO abort_install
+    DetailPrint "WireGuard nicht gefunden — wird automatisch installiert..."
 
-    open_wg_page:
-      ExecShell "open" "https://www.wireguard.com/install/"
-      MessageBox MB_OK|MB_ICONINFORMATION \
-        "WireGuard-Download-Seite wurde ge$\u00f6ffnet.$\n$\nBitte installiere WireGuard und starte dann diesen Installer erneut."
-      Abort
+    ; Write a PowerShell script to temp dir (avoids complex quoting in ExecWait)
+    FileOpen $R1 "$TEMP\install-wireguard.ps1" w
+    FileWrite $R1 "$$url = 'https://download.wireguard.com/windows-client/wireguard-installer.exe'$\r$\n"
+    FileWrite $R1 "$$out = Join-Path $$env:TEMP 'wireguard-installer.exe'$\r$\n"
+    FileWrite $R1 "Invoke-WebRequest -Uri $$url -OutFile $$out -UseBasicParsing$\r$\n"
+    FileWrite $R1 "Start-Process -FilePath $$out -ArgumentList '/S' -Wait$\r$\n"
+    FileClose $R1
 
-    abort_install:
-      MessageBox MB_OK|MB_ICONWARNING \
-        "Installation abgebrochen.$\n$\nWireGuard wird f$\u00fcr $(^Name) ben$\u00f6tigt."
+    ; Run PowerShell script (NSIS installer already runs as admin — perMachine)
+    ExecWait 'powershell -NoProfile -ExecutionPolicy Bypass -File "$TEMP\install-wireguard.ps1"' $R2
+
+    ; Delete temp script
+    Delete "$TEMP\install-wireguard.ps1"
+
+    ; Re-check whether installation succeeded
+    !insertmacro _FindWireGuard $R0
+    StrCmp $R0 "" wireguard_install_failed wireguard_ok
+
+    wireguard_install_failed:
+      MessageBox MB_OK|MB_ICONERROR \
+        "WireGuard konnte nicht automatisch installiert werden.$\n$\nBitte installiere WireGuard manuell von:$\nhttps://www.wireguard.com/install/$\n$\nDanach diesen Installer erneut starten."
       Abort
 
   wireguard_ok:
-    ; WireGuard is installed — continue installation
     DetailPrint "WireGuard gefunden: $R0"
 
 !macroend
