@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { TrayMenu } from './components/TrayMenu'
 import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
+import { FirstRunWizard } from './components/FirstRunWizard'
 import type { Session } from './components/SessionList'
 import './App.css'
 
@@ -28,7 +29,8 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<ActiveTab>('sessions')
-
+  // null = checking, false = missing/invalid, true = valid
+  const [configValid, setConfigValid] = useState<boolean | null>(null)
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -89,6 +91,14 @@ function App() {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Check config validity on startup before doing anything else
+    invoke<boolean>('validate_conf', { path: WG_CONF_PATH })
+      .then((valid) => setConfigValid(valid))
+      .catch(() => setConfigValid(false))
+  }, [])
+
+  useEffect(() => {
+    if (configValid !== true) return
     checkStatus()
 
     const unlisten_connect = listen('tray-connect', () => connect())
@@ -101,7 +111,7 @@ function App() {
       unlisten_connect.then((f) => f())
       unlisten_disconnect.then((f) => f())
     }
-  }, [checkStatus, connect, disconnect])
+  }, [configValid, checkStatus, connect, disconnect])
 
   useEffect(() => {
     if (vpnConnected) {
@@ -110,6 +120,25 @@ function App() {
   }, [vpnConnected, refreshSessions])
 
   // ── Render ──────────────────────────────────────────────────────────
+
+  // Loading state while we check config
+  if (configValid === null) {
+    return (
+      <div className="app app--loading">
+        <p>Checking configuration…</p>
+      </div>
+    )
+  }
+
+  // First-run wizard when no valid config exists
+  if (configValid === false) {
+    return (
+      <FirstRunWizard
+        confPath={WG_CONF_PATH}
+        onComplete={() => setConfigValid(true)}
+      />
+    )
+  }
 
   return (
     <div className="app">
