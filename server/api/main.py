@@ -61,7 +61,7 @@ def _create_token(subject: str, extra: dict | None = None) -> str:
         "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES),
         **(extra or {}),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, os.getenv("JWT_SECRET", JWT_SECRET), algorithm=JWT_ALGORITHM)
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +75,11 @@ _cleanup_task: asyncio.Task | None = None
 async def lifespan(app: FastAPI):
     global _cleanup_task
 
-    if not JWT_SECRET:
+    _jwt_secret = os.getenv("JWT_SECRET", "")
+    _admin_pw = os.getenv("ADMIN_PASSWORD", "")
+    if not _jwt_secret:
         raise RuntimeError("JWT_SECRET environment variable is required")
-    if not ADMIN_PASSWORD:
+    if not _admin_pw:
         raise RuntimeError("ADMIN_PASSWORD environment variable is required")
 
     await init_db()
@@ -157,9 +159,10 @@ async def health() -> dict:
     summary="Admin login — returns JWT",
 )
 async def login(body: LoginRequest) -> TokenResponse:
-    if not ADMIN_PASSWORD:
+    _admin_pw = os.getenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
+    if not _admin_pw:
         raise HTTPException(status_code=503, detail="Admin password not configured")
-    if body.password != ADMIN_PASSWORD:
+    if body.password != _admin_pw:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid password",

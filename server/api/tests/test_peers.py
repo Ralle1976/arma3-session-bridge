@@ -12,9 +12,15 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 # ── Env setup (MUST happen before importing app) ───────────────────────────────
+import pathlib
+
+_DB_PATH = "/tmp/arma3-test-peers.db"
+# Remove stale DB so tests start clean each run
+pathlib.Path(_DB_PATH).unlink(missing_ok=True)
+
 os.environ.setdefault("ADMIN_PASSWORD", "test-password-peers")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-at-least-32-chars-long-peers")
-os.environ.setdefault("DB_PATH", "/tmp/arma3-test-peers.db")
+os.environ.setdefault("DB_PATH", _DB_PATH)
 
 from main import app  # noqa: E402
 from database import init_db  # noqa: E402

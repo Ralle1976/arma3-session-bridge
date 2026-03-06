@@ -14,17 +14,19 @@ use tauri::{
     Manager,
 };
 
-/// Session data returned by the API
+use vpn::VpnStatus;
+
+// ─── Structs ───────────────────────────────────────────────────────────────────
+
+/// Session returned by `GET /sessions` from the bridge API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SessionInfo {
-    pub id: u64,
-    pub peer_id: u64,
-    pub mission: Option<String>,
-    pub map_name: Option<String>,
-    pub player_count: u32,
-    pub started_at: String,
-    pub ended_at: Option<String>,
-    pub active: bool,
+pub struct Session {
+    pub id: String,
+    pub mission_name: String,
+    pub host_tunnel_ip: String,
+    pub current_players: u32,
+    pub max_players: u32,
+    pub status: String,
 }
 
 // ─── Tauri Commands ────────────────────────────────────────────────────────────
@@ -35,12 +37,12 @@ pub struct SessionInfo {
 ///
 /// # Parameters
 /// * `conf_path` – Full Windows path to the WireGuard `.conf` file.
+///   Tunnel name is derived from the filename (without `.conf` extension).
 ///
-/// Requires elevated privileges (admin). Call via `runas` if needed.
+/// Requires elevated privileges (admin).
 #[tauri::command]
-fn connect_vpn(conf_path: String) -> Result<String, String> {
-    vpn::install_tunnel_service(&conf_path)?;
-    Ok("VPN connected successfully".to_string())
+fn connect_vpn(conf_path: String) -> Result<(), String> {
+    vpn::connect_vpn(&conf_path)
 }
 
 /// Uninstall the WireGuard tunnel service (Disconnect VPN).
@@ -50,19 +52,18 @@ fn connect_vpn(conf_path: String) -> Result<String, String> {
 /// # Parameters
 /// * `tunnel_name` – Name of the WireGuard tunnel (conf filename without .conf).
 #[tauri::command]
-fn disconnect_vpn(tunnel_name: String) -> Result<String, String> {
-    vpn::uninstall_tunnel_service(&tunnel_name)?;
-    Ok("VPN disconnected successfully".to_string())
+fn disconnect_vpn(tunnel_name: String) -> Result<(), String> {
+    vpn::disconnect_vpn(&tunnel_name)
 }
 
 /// Check whether the WireGuard tunnel service is running.
 ///
 /// Invoked from frontend as: `invoke('check_vpn_status', { tunnelName: '...' })`
 ///
-/// Returns `true` if connected, `false` otherwise.
+/// Returns a [`VpnStatus`] object with `connected`, `tunnel_ip`, `tunnel_name`.
 #[tauri::command]
-fn check_vpn_status(tunnel_name: String) -> bool {
-    vpn::is_tunnel_running(&tunnel_name)
+fn check_vpn_status(tunnel_name: String) -> Result<VpnStatus, String> {
+    vpn::check_vpn_status(&tunnel_name)
 }
 
 /// Fetch active Arma 3 sessions from the bridge API.
@@ -72,20 +73,28 @@ fn check_vpn_status(tunnel_name: String) -> bool {
 /// # Parameters
 /// * `api_url` – Base URL of the API, e.g. `http://10.8.0.1:8001`
 ///
-/// Calls `GET <api_url>/sessions` and returns the JSON array.
+/// Calls `GET <api_url>/sessions` and returns a typed array of [`Session`].
 #[tauri::command]
-fn get_sessions(api_url: String) -> Result<Vec<serde_json::Value>, String> {
+async fn get_sessions(api_url: String) -> Result<Vec<Session>, String> {
     let url = format!("{}/sessions", api_url.trim_end_matches('/'));
 
-    let response = ureq::get(&url)
-        .call()
-        .map_err(|e| e.to_string())?;
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
 
-    let data: Vec<serde_json::Value> = response
-        .into_json()
-        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "API returned error status: {}",
+            response.status()
+        ));
+    }
 
-    Ok(data)
+    let sessions = response
+        .json::<Vec<Session>>()
+        .await
+        .map_err(|e| format!("Failed to parse sessions JSON: {e}"))?;
+
+    Ok(sessions)
 }
 
 // ─── Application Entry ─────────────────────────────────────────────────────────
@@ -93,8 +102,8 @@ fn get_sessions(api_url: String) -> Result<Vec<serde_json::Value>, String> {
 /// Build and run the Tauri application with system-tray support.
 ///
 /// System-Tray menu items:
-///   • Connect VPN    — triggers connect_vpn command
-///   • Disconnect VPN — triggers disconnect_vpn command
+///   • Connect VPN    — emits `tray-connect` event to frontend
+///   • Disconnect VPN — emits `tray-disconnect` event to frontend
 ///   • ──────────────
 ///   • Quit           — exits the application
 pub fn run() {

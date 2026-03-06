@@ -19,7 +19,7 @@ export default defineConfig({
     sourcemap: false,
   },
   test: {
-    environment: 'jsdom',
-    globals: false,
+    // 'node' environment — no jsdom needed, tests the API / pure logic layer
+    environment: 'node',
   },
 })
