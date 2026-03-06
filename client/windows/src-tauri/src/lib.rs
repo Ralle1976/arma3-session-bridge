@@ -89,6 +89,7 @@ async fn connect_vpn(
 ///
 /// Invoked from frontend: `invoke('disconnect_vpn', { tunnelName: '...' })`
 #[tauri::command]
+async fn disconnect_vpn(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     tunnel_name: String,
