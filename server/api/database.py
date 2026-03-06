@@ -3,29 +3,35 @@ database.py — SQLite WAL-Mode Setup for arma3-session-bridge API.
 
 Uses aiosqlite for async access. WAL mode is enabled for concurrent reads
 from multiple coroutines without blocking writers.
+
+Usage pattern:
+    async with get_connection() as conn:
+        ...
 """
 
 import aiosqlite
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 DB_PATH = Path(os.getenv("DB_PATH", "/app/data/arma3.db"))
 
 
-async def get_connection() -> aiosqlite.Connection:
-    """Open an aiosqlite connection with WAL mode enabled."""
+@asynccontextmanager
+async def get_connection():
+    """Async context manager that yields an aiosqlite connection with WAL mode."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = await aiosqlite.connect(str(DB_PATH))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await conn.commit()
-    return conn
+    async with aiosqlite.connect(str(DB_PATH)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.commit()
+        yield conn
 
 
 async def init_db() -> None:
-    """Create all tables on startup if they don't exist."""
-    async with await get_connection() as conn:
+    """Create all tables on startup if they don't exist, then run migrations."""
+    async with get_connection() as conn:
         await conn.executescript("""
             CREATE TABLE IF NOT EXISTS peers (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,14 +45,14 @@ async def init_db() -> None:
             );
 
             CREATE TABLE IF NOT EXISTS sessions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                peer_id     INTEGER NOT NULL REFERENCES peers(id),
-                mission     TEXT,
-                map_name    TEXT,
-                player_count INTEGER NOT NULL DEFAULT 0,
-                started_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-                ended_at    TEXT,
-                active      INTEGER NOT NULL DEFAULT 1
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                peer_id         INTEGER NOT NULL REFERENCES peers(id),
+                mission         TEXT,
+                map_name        TEXT,
+                player_count    INTEGER NOT NULL DEFAULT 0,
+                started_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+                ended_at        TEXT,
+                active          INTEGER NOT NULL DEFAULT 1
             );
 
             CREATE TABLE IF NOT EXISTS admin_events (
@@ -58,3 +64,23 @@ async def init_db() -> None:
             );
         """)
         await conn.commit()
+
+        # Schema migrations — add columns introduced for session registry.
+        # SQLite does not support ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
+        # so we try/except each column addition.
+        migrations = [
+            ("sessions", "last_seen",        "TEXT"),
+            ("sessions", "status",           "TEXT NOT NULL DEFAULT 'waiting'"),
+            ("sessions", "max_players",      "INTEGER NOT NULL DEFAULT 10"),
+            ("sessions", "current_players",  "INTEGER NOT NULL DEFAULT 0"),
+            ("sessions", "mission_name",     "TEXT"),
+        ]
+        for table, column, col_def in migrations:
+            try:
+                await conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+                )
+                await conn.commit()
+            except Exception:
+                # Column already exists — silently skip
+                pass

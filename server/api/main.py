@@ -12,15 +12,17 @@ Endpoints (skeleton — full implementation in subsequent tasks):
   GET    /peers/{id}/config — download WireGuard config (admin)
   --- sessions ---
   POST /sessions          — open session (peer JWT)
-  PATCH /sessions/{id}    — update session (peer JWT)
+  GET  /sessions          — list active sessions (public)
   DELETE /sessions/{id}   — close session (peer JWT)
-  GET  /sessions          — list active sessions (admin)
+  PUT  /sessions/{id}/heartbeat — update heartbeat (peer JWT)
   --- admin ---
-  GET  /admin/events      — audit log (admin)
-  GET  /admin/status      — system status (admin)
+  GET  /admin/stats   — system statistics (admin JWT)
+  GET  /admin/events  — SSE stream of live events (admin JWT)
 """
 
+import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -66,15 +68,37 @@ def _create_token(subject: str, extra: dict | None = None) -> str:
 # App lifecycle
 # ---------------------------------------------------------------------------
 
+_cleanup_task: asyncio.Task | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _cleanup_task
+
     if not JWT_SECRET:
         raise RuntimeError("JWT_SECRET environment variable is required")
     if not ADMIN_PASSWORD:
         raise RuntimeError("ADMIN_PASSWORD environment variable is required")
+
     await init_db()
+
+    # Record server start time for uptime calculations
+    from routers.admin import set_server_start_time
+    set_server_start_time(time.time())
+
+    # Start background session cleanup task
+    from services.session_cleanup import cleanup_loop
+    _cleanup_task = asyncio.create_task(cleanup_loop())
+
     yield
+
+    # Shutdown: cancel cleanup task
+    if _cleanup_task and not _cleanup_task.done():
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -91,6 +115,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Include routers
+# ---------------------------------------------------------------------------
+
+from routers.sessions import router as sessions_router
+from routers.admin import router as admin_router
+
+app.include_router(sessions_router)
+app.include_router(admin_router)
 
 
 # ---------------------------------------------------------------------------
@@ -159,44 +193,4 @@ async def revoke_peer(peer_id: int):
 
 @app.get("/peers/{peer_id}/config", tags=["peers"], status_code=501)
 async def get_peer_config(peer_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-# ---------------------------------------------------------------------------
-# Sessions (stub — full implementation in T3)
-# ---------------------------------------------------------------------------
-
-
-@app.post("/sessions", tags=["sessions"], status_code=501)
-async def open_session():
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.patch("/sessions/{session_id}", tags=["sessions"], status_code=501)
-async def update_session(session_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.delete("/sessions/{session_id}", tags=["sessions"], status_code=501)
-async def close_session(session_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.get("/sessions", tags=["sessions"], status_code=501)
-async def list_sessions():
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-# ---------------------------------------------------------------------------
-# Admin (stub — full implementation in T4)
-# ---------------------------------------------------------------------------
-
-
-@app.get("/admin/events", tags=["admin"], status_code=501)
-async def list_admin_events():
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.get("/admin/status", tags=["admin"], status_code=501)
-async def admin_status():
     raise HTTPException(status_code=501, detail="Not implemented yet")
