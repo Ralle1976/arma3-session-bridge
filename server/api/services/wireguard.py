@@ -7,6 +7,7 @@ Responsibilities:
   - get_peer_status()    → parse `wg show wg0` output
 """
 
+import base64
 import os
 import subprocess
 import tempfile
@@ -20,41 +21,35 @@ WG_SERVER_TUNNEL_IP = "10.8.0.1"
 
 
 def generate_keypair() -> tuple[str, str]:
-    """Generate a WireGuard keypair using wg genkey | wg pubkey.
+    """Generate a WireGuard keypair using Python cryptography (Curve25519/X25519).
+
+    Does NOT require the wg CLI — keys are generated in-process using the
+    same cryptography library already used for JWT signing.
 
     Returns:
-        (private_key, public_key) as base64 strings.
+        (private_key, public_key) as base64 strings — WireGuard-compatible format.
 
     Raises:
-        RuntimeError: if wg tools are not available or execution fails.
+        RuntimeError: if key generation fails.
     """
     try:
-        # Generate private key
-        private_result = subprocess.run(
-            ["docker", "exec", WG_CONTAINER, "wg", "genkey"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding, NoEncryption, PrivateFormat, PublicFormat,
         )
-        private_key = private_result.stdout.strip()
-
-        # Derive public key from private key
-        public_result = subprocess.run(
-            ["docker", "exec", WG_CONTAINER, "wg", "pubkey"],
-            input=private_key,
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=10,
+        priv_obj = X25519PrivateKey.generate()
+        priv_bytes = priv_obj.private_bytes(
+            encoding=Encoding.Raw,
+            format=PrivateFormat.Raw,
+            encryption_algorithm=NoEncryption(),
         )
-        public_key = public_result.stdout.strip()
-
-        return private_key, public_key
-    except FileNotFoundError:
-        raise RuntimeError("wg command not found — is WireGuard installed?")
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"wg keypair generation failed: {exc.stderr}") from exc
+        pub_bytes = priv_obj.public_key().public_bytes(
+            encoding=Encoding.Raw,
+            format=PublicFormat.Raw,
+        )
+        return base64.b64encode(priv_bytes).decode(), base64.b64encode(pub_bytes).decode()
+    except Exception as exc:
+        raise RuntimeError(f"WireGuard keypair generation failed: {exc}") from exc
 
 
 def _build_wg_conf(peers: list[dict]) -> str:

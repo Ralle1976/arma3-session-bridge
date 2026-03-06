@@ -35,7 +35,7 @@ services:
     volumes:
       - ./server/api:/app
       - ./wireguard/config:/wg-config:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "${API_PORT:-8001}:8000"
     restart: unless-stopped
