@@ -6,3 +6,8 @@ __pycache__
 node_modules
 dist
 target
+wireguard/config/
+server/api/data/
+*.pyc
+.pytest_cache/
+*.egg-info/

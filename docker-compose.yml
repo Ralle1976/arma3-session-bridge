@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  wireguard:
+    image: linuxserver/wireguard:latest
+    container_name: arma3-wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - ./wireguard/config:/config
+      - ./server/wireguard/entrypoint.sh:/custom-cont-init.d/99-gen-keys.sh:ro
+    ports:
+      - "${WG_PORT:-51820}:51820/udp"
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+    networks:
+      - arma3-net
+
+  api:
+    build:
+      context: ./server/api
+      dockerfile: Dockerfile
+    container_name: arma3-api
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - WG_SERVER_IP=${WG_SERVER_IP:-10.8.0.1}
+      - WG_PORT=${WG_PORT:-51820}
+    volumes:
+      - ./server/api:/app
+      - ./wireguard/config:/wg-config:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${API_PORT:-8001}:8000"
+    restart: unless-stopped
+    depends_on:
+      - wireguard
+    networks:
+      - arma3-net
+
+  admin-ui:
+    image: nginx:alpine
+    container_name: arma3-admin-ui
+    volumes:
+      - ./server/admin-ui:/usr/share/nginx/html:ro
+    ports:
+      - "${ADMIN_UI_PORT:-8090}:80"
+    restart: unless-stopped
+    depends_on:
+      - api
+    networks:
+      - arma3-net
+
+networks:
+  arma3-net:
+    driver: bridge
+    name: arma3-net
