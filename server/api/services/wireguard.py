@@ -81,7 +81,6 @@ def _build_wg_conf(peers: list[dict]) -> str:
 
 
 def sync_wireguard(peers: list[dict]) -> None:
-    def sync_wireguard(peers: list[dict]) -> None:
     """Write peer config and apply via docker exec wg syncconf.
 
     Uses `wg syncconf` (no downtime!) instead of restarting the container.
