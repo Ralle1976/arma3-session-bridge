@@ -233,7 +233,11 @@ class WgStats(BaseModel):
 
 
 class AdminStats(BaseModel):
-
+    connected_peers: int
+    active_sessions: int
+    server_uptime: float  # seconds since app start
+    wg_rx_bytes: int
+    wg_tx_bytes: int
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
