@@ -1,0 +1,1045 @@
+name: Initialize Wiki Pages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  init-wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Git
+        run: |
+          git config --global user.name "YourGitHubUser"
+          git config --global user.email "ralf.arnold@it-bfw.de"
+
+      - name: Clone or init wiki
+        run: |
+          git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git wiki-repo || (mkdir wiki-repo && cd wiki-repo && git init && git remote add origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git)
+
+      - name: Write wiki pages
+        run: |
+          cd wiki-repo
+
+          # Home.md
+          cat > Home.md << 'WIKIEOF'
+          # Arma 3 Session Bridge — Wiki
+
+          Welcome to the **Arma 3 Session Bridge** wiki. Private Arma 3 multiplayer via WireGuard VPN — no port-forwarding required.
+
+          ## Pages
+
+          | Page | Language | Description |
+          |------|----------|-------------|
+          | [Installation](Installation) | English | Server & client installation guide |
+          | [Installation-DE](Installation-DE) | Deutsch | Server & Client Installationsanleitung |
+          | [Configuration](Configuration) | English | Environment variables & config reference |
+          | [Configuration-DE](Configuration-DE) | Deutsch | Konfigurationsreferenz |
+          | [Troubleshooting](Troubleshooting) | English | Common problems and solutions |
+          | [Troubleshooting-DE](Troubleshooting-DE) | Deutsch | Häufige Probleme und Lösungen |
+          | [FAQ](FAQ) | English | Frequently asked questions |
+          | [FAQ-DE](FAQ-DE) | Deutsch | Häufig gestellte Fragen |
+
+          ## Quick Links
+
+          - [GitHub Repository](https://github.com/YourGitHubUser/arma3-session-bridge)
+          - [User Manual (English)](https://github.com/YourGitHubUser/arma3-session-bridge/blob/master/docs/user-manual-en.md)
+          - [Benutzerhandbuch (Deutsch)](https://github.com/YourGitHubUser/arma3-session-bridge/blob/master/docs/user-manual-de.md)
+          - [API Reference (OpenAPI)](https://github.com/YourGitHubUser/arma3-session-bridge/blob/master/openapi.yaml)
+
+          ## Architecture Overview
+
+          ```
+          Windows Player A ─── WireGuard ──┐
+          Windows Player B ─── WireGuard ──┼── IONOS Server (YOUR_SERVER_IP)
+          Windows Player C ─── WireGuard ──┘    ├── WireGuard VPN  (UDP 51820)
+                                                  ├── FastAPI API   (Port 8001)
+                                                  └── React Admin  (Port 8090)
+          ```
+
+          ## Stack
+
+          | Component | Technology |
+          |-----------|-----------|
+          | VPN | WireGuard (linuxserver/wireguard:latest) |
+          | API | FastAPI (Python 3.11), SQLite |
+          | Admin UI | React + TailwindCSS, nginx |
+          | Client | Tauri v2 (Rust + React), NSIS Installer |
+          | Server | IONOS VPS, AlmaLinux 9.7, Docker |
+          WIKIEOF
+
+          # Installation.md
+          cat > Installation.md << 'WIKIEOF'
+          # Installation Guide (English)
+
+          ## Prerequisites
+
+          ### Server
+          - Linux VPS with public IP (AlmaLinux 9.7 / Ubuntu 22.04+ recommended)
+          - Docker Engine 24.x+ and Docker Compose 2.x+
+          - Open ports: `51820/udp`, `8001/tcp`, `8090/tcp`
+
+          ### Windows Client
+          - Windows 10/11 (64-bit)
+          - Administrator rights (mandatory)
+          - Arma 3 installed via Steam
+
+          ## Server Installation
+
+          ### Step 1: Clone Repository
+
+          ```bash
+          cd /opt
+          git clone https://github.com/YourGitHubUser/arma3-session-bridge
+          cd arma3-session-bridge
+          ```
+
+          ### Step 2: Configure Environment
+
+          ```bash
+          cp .env.example .env
+          nano .env
+          ```
+
+          Fill in all required values:
+
+          ```env
+          ADMIN_PASSWORD=your-strong-password
+          JWT_SECRET=your-random-secret-min-32-chars
+          WG_SERVER_IP=YOUR_SERVER_IP
+          WG_PORT=51820
+          API_PORT=8001
+          ADMIN_UI_PORT=8090
+          ```
+
+          Generate a secure JWT secret:
+          ```bash
+          openssl rand -base64 48
+          ```
+
+          ### Step 3: Configure Firewall (AlmaLinux/CentOS)
+
+          ```bash
+          firewall-cmd --permanent --add-port=51820/udp
+          firewall-cmd --permanent --add-port=8001/tcp
+          firewall-cmd --permanent --add-port=8090/tcp
+          firewall-cmd --reload
+          ```
+
+          For Ubuntu/Debian:
+          ```bash
+          ufw allow 51820/udp
+          ufw allow 8001/tcp
+          ufw allow 8090/tcp
+          ```
+
+          ### Step 4: Start Services
+
+          ```bash
+          docker compose up -d
+          ```
+
+          Verify:
+          ```bash
+          curl http://localhost:8001/health
+          # Expected: {"status": "ok", "version": "0.1.0"}
+          docker compose ps
+          ```
+
+          ### Step 5: Create First Peer
+
+          ```bash
+          TOKEN=$(curl -s -X POST http://localhost:8001/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"password":"YOUR-ADMIN-PASSWORD"}' \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+          curl -X POST http://localhost:8001/peers \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Player1"}'
+          ```
+
+          ### Step 6: Download Peer Config
+
+          ```bash
+          curl -o player1.conf \
+            -H "Authorization: Bearer $TOKEN" \
+            http://localhost:8001/peers/1/config
+          ```
+
+          Distribute this `.conf` file securely to the player.
+
+          ## Client Installation (Windows)
+
+          ### Download
+
+          Get the latest installer from: [Releases](https://github.com/YourGitHubUser/arma3-session-bridge/releases/latest)
+
+          File: `arma3-session-bridge-setup.exe`
+
+          ### Install
+
+          1. **Right-click** the installer → **"Run as administrator"**
+          2. Accept the UAC prompt
+          3. Follow the Setup Wizard:
+             - Choose installation directory
+             - Browse and select your `.conf` file
+             - Enter API URL: `http://YOUR_SERVER_IP:8001`
+          4. Click "Install"
+
+          ### Verify
+
+          After installation:
+          1. Tray icon appears (bottom-right taskbar)
+          2. Right-click → "Connect VPN"
+          3. Tooltip shows "Connected: 10.8.0.x"
+
+          ## Updating
+
+          ### Server
+
+          ```bash
+          cd /opt/arma3-session-bridge
+          git pull
+          docker compose pull
+          docker compose up -d --build
+          ```
+
+          ### Client
+
+          Download and run the latest installer from [Releases](https://github.com/YourGitHubUser/arma3-session-bridge/releases/latest).
+          WIKIEOF
+
+          # Installation-DE.md
+          cat > Installation-DE.md << 'WIKIEOF'
+          # Installationsanleitung (Deutsch)
+
+          ## Voraussetzungen
+
+          ### Server
+          - Linux VPS mit öffentlicher IP (AlmaLinux 9.7 / Ubuntu 22.04+ empfohlen)
+          - Docker Engine 24.x+ und Docker Compose 2.x+
+          - Offene Ports: `51820/udp`, `8001/tcp`, `8090/tcp`
+
+          ### Windows-Client
+          - Windows 10/11 (64-bit)
+          - Administrator-Rechte (zwingend erforderlich)
+          - Arma 3 über Steam installiert
+
+          ## Server-Installation
+
+          ### Schritt 1: Repository klonen
+
+          ```bash
+          cd /opt
+          git clone https://github.com/YourGitHubUser/arma3-session-bridge
+          cd arma3-session-bridge
+          ```
+
+          ### Schritt 2: Umgebungsvariablen konfigurieren
+
+          ```bash
+          cp .env.example .env
+          nano .env
+          ```
+
+          Alle erforderlichen Werte ausfüllen:
+
+          ```env
+          ADMIN_PASSWORD=dein-sicheres-passwort
+          JWT_SECRET=dein-geheimnis-mindestens-32-zeichen
+          WG_SERVER_IP=YOUR_SERVER_IP
+          WG_PORT=51820
+          API_PORT=8001
+          ADMIN_UI_PORT=8090
+          ```
+
+          Sicheres JWT Secret generieren:
+          ```bash
+          openssl rand -base64 48
+          ```
+
+          ### Schritt 3: Firewall konfigurieren (AlmaLinux/CentOS)
+
+          ```bash
+          firewall-cmd --permanent --add-port=51820/udp
+          firewall-cmd --permanent --add-port=8001/tcp
+          firewall-cmd --permanent --add-port=8090/tcp
+          firewall-cmd --reload
+          ```
+
+          Für Ubuntu/Debian:
+          ```bash
+          ufw allow 51820/udp
+          ufw allow 8001/tcp
+          ufw allow 8090/tcp
+          ```
+
+          ### Schritt 4: Services starten
+
+          ```bash
+          docker compose up -d
+          ```
+
+          Prüfen:
+          ```bash
+          curl http://localhost:8001/health
+          # Erwartete Antwort: {"status": "ok", "version": "0.1.0"}
+          docker compose ps
+          ```
+
+          ### Schritt 5: Ersten Peer anlegen
+
+          ```bash
+          TOKEN=$(curl -s -X POST http://localhost:8001/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"password":"DEIN-ADMIN-PASSWORT"}' \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+          curl -X POST http://localhost:8001/peers \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Spieler1"}'
+          ```
+
+          ### Schritt 6: Peer-Config herunterladen
+
+          ```bash
+          curl -o spieler1.conf \
+            -H "Authorization: Bearer $TOKEN" \
+            http://localhost:8001/peers/1/config
+          ```
+
+          Diese `.conf` Datei sicher an den Spieler weitergeben.
+
+          ## Client-Installation (Windows)
+
+          ### Herunterladen
+
+          Neusten Installer hier herunterladen: [Releases](https://github.com/YourGitHubUser/arma3-session-bridge/releases/latest)
+
+          Datei: `arma3-session-bridge-setup.exe`
+
+          ### Installieren
+
+          1. **Rechtsklick** auf den Installer → **"Als Administrator ausführen"**
+          2. UAC-Dialog bestätigen
+          3. Setup-Assistent folgen:
+             - Installationsverzeichnis wählen
+             - `.conf` Datei auswählen
+             - API-URL eingeben: `http://YOUR_SERVER_IP:8001`
+          4. „Installieren" klicken
+
+          ### Prüfen
+
+          Nach der Installation:
+          1. Tray-Symbol erscheint (rechts unten in der Taskleiste)
+          2. Rechtsklick → „VPN verbinden"
+          3. Tooltip zeigt „Connected: 10.8.0.x"
+
+          ## Updates
+
+          ### Server
+
+          ```bash
+          cd /opt/arma3-session-bridge
+          git pull
+          docker compose pull
+          docker compose up -d --build
+          ```
+
+          ### Client
+
+          Neusten Installer von [Releases](https://github.com/YourGitHubUser/arma3-session-bridge/releases/latest) herunterladen und ausführen.
+          WIKIEOF
+
+          # Configuration.md
+          cat > Configuration.md << 'WIKIEOF'
+          # Configuration Reference (English)
+
+          ## Environment Variables (.env)
+
+          | Variable | Required | Default | Description |
+          |----------|----------|---------|-------------|
+          | `ADMIN_PASSWORD` | ✅ Yes | — | Password for admin dashboard login |
+          | `JWT_SECRET` | ✅ Yes | — | Secret for JWT token signing (min. 32 chars) |
+          | `WG_SERVER_IP` | ✅ Yes | `10.8.0.1` | Public IP of your WireGuard server |
+          | `WG_PORT` | No | `51820` | WireGuard UDP listen port |
+          | `API_PORT` | No | `8001` | External port for FastAPI |
+          | `ADMIN_UI_PORT` | No | `8090` | External port for Admin UI |
+
+          ## Docker Services
+
+          ### wireguard
+
+          ```yaml
+          image: linuxserver/wireguard:latest
+          container_name: arma3-wireguard
+          ports:
+            - "${WG_PORT:-51820}:51820/udp"
+          ```
+
+          Environment variables set by `linuxserver/wireguard`:
+          - `PUID=1000` — Process user ID
+          - `PGID=1000` — Process group ID
+          - `TZ=Europe/Berlin` — Timezone
+
+          ### api
+
+          ```yaml
+          build: ./server/api
+          container_name: arma3-api
+          ports:
+            - "${API_PORT:-8001}:8000"
+          ```
+
+          Volumes mounted:
+          - `./server/api:/app` — Source code (hot-reload in dev)
+          - `./wireguard/config:/wg-config:ro` — WireGuard config (read-only)
+          - `/var/run/docker.sock:/var/run/docker.sock:ro` — Docker socket
+
+          ### admin-ui
+
+          ```yaml
+          image: nginx:alpine
+          container_name: arma3-admin-ui
+          ports:
+            - "${ADMIN_UI_PORT:-8090}:80"
+          ```
+
+          ## API Authentication
+
+          The API uses **JWT Bearer tokens** with two token types:
+
+          ### Admin JWT
+          - Obtained via `POST /auth/login` with `ADMIN_PASSWORD`
+          - Expires after **8 hours**
+          - Required for: peer management, admin stats
+
+          ### Peer JWT
+          - Assigned once at peer creation (never shown again)
+          - Never expires (revoke peer to invalidate)
+          - Required for: creating sessions, sending heartbeats
+
+          ## WireGuard Configuration
+
+          The WireGuard server uses **split-tunnel** routing:
+          ```
+          AllowedIPs = 10.8.0.0/24
+          ```
+
+          This means:
+          - Only traffic to `10.8.0.0/24` goes through the VPN
+          - Regular internet traffic bypasses the tunnel
+          - Arma 3 (connecting to `10.8.0.x`) automatically uses the tunnel
+
+          ## Session Configuration
+
+          | Parameter | Value | Description |
+          |-----------|-------|-------------|
+          | Heartbeat interval | 60 seconds | Client sends heartbeat every 60s |
+          | Session timeout | 5 minutes | Session deleted if no heartbeat for 5 min |
+          | Max players | 256 | Maximum Arma 3 players per session |
+
+          ## Network Topology
+
+          ```
+          Internet
+            │
+            ▼
+          YOUR_SERVER_IP (IONOS VPS)
+            │
+            ├── :51820/udp  ─── WireGuard ──────────┐
+            ├── :8001/tcp   ─── FastAPI REST API     │
+            └── :8090/tcp   ─── React Admin UI       │
+                                                       │
+          VPN: 10.8.0.0/24                            │
+            ├── 10.8.0.1   ─── WireGuard Server ◄──┘
+            ├── 10.8.0.2   ─── Player A (Host)
+            ├── 10.8.0.3   ─── Player B
+            └── 10.8.0.x   ─── Player N
+          ```
+
+          ## Client Configuration (Tauri)
+
+          The client uses a hardcoded API URL in `lib.rs`:
+          ```rust
+          const API_BASE_URL: &str = "https://your-server.example.com/api";
+          ```
+
+          To use a custom server, rebuild the client with your API URL.
+          WIKIEOF
+
+          # Configuration-DE.md
+          cat > Configuration-DE.md << 'WIKIEOF'
+          # Konfigurationsreferenz (Deutsch)
+
+          ## Umgebungsvariablen (.env)
+
+          | Variable | Pflicht | Standard | Beschreibung |
+          |----------|---------|----------|-------------|
+          | `ADMIN_PASSWORD` | ✅ Ja | — | Passwort für das Admin-Dashboard |
+          | `JWT_SECRET` | ✅ Ja | — | Geheimnis für JWT-Token-Signierung (min. 32 Zeichen) |
+          | `WG_SERVER_IP` | ✅ Ja | `10.8.0.1` | Öffentliche IP des WireGuard-Servers |
+          | `WG_PORT` | Nein | `51820` | WireGuard UDP-Listen-Port |
+          | `API_PORT` | Nein | `8001` | Externer Port für FastAPI |
+          | `ADMIN_UI_PORT` | Nein | `8090` | Externer Port für Admin-UI |
+
+          ## Docker-Services
+
+          ### wireguard
+
+          ```yaml
+          image: linuxserver/wireguard:latest
+          container_name: arma3-wireguard
+          ports:
+            - "${WG_PORT:-51820}:51820/udp"
+          ```
+
+          Umgebungsvariablen (linuxserver/wireguard):
+          - `PUID=1000` — Prozess-Benutzer-ID
+          - `PGID=1000` — Prozess-Gruppen-ID
+          - `TZ=Europe/Berlin` — Zeitzone
+
+          ### api
+
+          ```yaml
+          build: ./server/api
+          container_name: arma3-api
+          ports:
+            - "${API_PORT:-8001}:8000"
+          ```
+
+          Gemountete Volumes:
+          - `./server/api:/app` — Quellcode (Hot-Reload im Dev-Modus)
+          - `./wireguard/config:/wg-config:ro` — WireGuard-Config (nur lesbar)
+          - `/var/run/docker.sock:/var/run/docker.sock:ro` — Docker-Socket
+
+          ## API-Authentifizierung
+
+          Die API verwendet **JWT Bearer-Tokens** mit zwei Token-Typen:
+
+          ### Admin-JWT
+          - Wird über `POST /auth/login` mit `ADMIN_PASSWORD` abgerufen
+          - Läuft nach **8 Stunden** ab
+          - Erforderlich für: Peer-Verwaltung, Admin-Statistiken
+
+          ### Peer-JWT
+          - Wird einmalig bei der Peer-Erstellung vergeben (nie wieder angezeigt)
+          - Läuft nicht ab (Peer sperren zum Ungültigmachen)
+          - Erforderlich für: Sessions erstellen, Heartbeats senden
+
+          ## WireGuard-Konfiguration
+
+          Der WireGuard-Server verwendet **Split-Tunnel** Routing:
+          ```
+          AllowedIPs = 10.8.0.0/24
+          ```
+
+          Das bedeutet:
+          - Nur Traffic zu `10.8.0.0/24` geht durch den VPN-Tunnel
+          - Normaler Internet-Traffic wird nicht umgeleitet
+          - Arma 3 (verbindet sich mit `10.8.0.x`) nutzt automatisch den Tunnel
+
+          ## Session-Konfiguration
+
+          | Parameter | Wert | Beschreibung |
+          |-----------|------|-------------|
+          | Heartbeat-Intervall | 60 Sekunden | Client sendet alle 60s einen Heartbeat |
+          | Session-Timeout | 5 Minuten | Session wird gelöscht wenn 5 min kein Heartbeat |
+          | Max. Spieler | 256 | Maximale Arma 3 Spieler pro Session |
+
+          ## Netzwerktopologie
+
+          ```
+          Internet
+            │
+            ▼
+          YOUR_SERVER_IP (IONOS VPS)
+            │
+            ├── :51820/udp  ─── WireGuard ──────────┐
+            ├── :8001/tcp   ─── FastAPI REST API     │
+            └── :8090/tcp   ─── React Admin UI       │
+                                                       │
+          VPN: 10.8.0.0/24                            │
+            ├── 10.8.0.1   ─── WireGuard Server ◄──┘
+            ├── 10.8.0.2   ─── Spieler A (Host)
+            ├── 10.8.0.3   ─── Spieler B
+            └── 10.8.0.x   ─── Spieler N
+          ```
+
+          ## Client-Konfiguration (Tauri)
+
+          Der Client verwendet eine feste API-URL in `lib.rs`:
+          ```rust
+          const API_BASE_URL: &str = "https://your-server.example.com/api";
+          ```
+
+          Für einen eigenen Server: Client neu kompilieren mit eigener API-URL.
+          WIKIEOF
+
+          # Troubleshooting.md
+          cat > Troubleshooting.md << 'WIKIEOF'
+          # Troubleshooting Guide (English)
+
+          ## VPN Issues
+
+          ### VPN won't connect
+
+          **Symptom:** Tray icon stays red, no tooltip update
+
+          **Solutions:**
+          1. **No admin rights:** Right-click → "Run as administrator"
+          2. **Invalid .conf file:** Settings → select a valid `.conf` file
+          3. **Server unreachable:** `ping YOUR_SERVER_IP` in Command Prompt
+          4. **Port blocked:** UDP 51820 blocked by ISP or corporate firewall — try mobile hotspot
+          5. **Driver error:** Restart Windows, then reinstall the application
+
+          ### VPN connects but loses connection randomly
+
+          **Cause:** Windows power management disabling network adapter
+
+          **Fix:**
+          1. Device Manager → Network Adapters → right-click → Properties
+          2. Power Management tab
+          3. Uncheck "Allow the computer to turn off this device to save power"
+
+          ### WireGuard service fails to install
+
+          **Cause:** Previous installation not properly removed
+
+          **Fix:**
+          ```cmd
+          # Run as Administrator
+          sc stop WireGuardTunnel$arma3-session-bridge
+          sc delete WireGuardTunnel$arma3-session-bridge
+          ```
+          Then reinstall the application.
+
+          ## Session Issues
+
+          ### Session not appearing in list
+
+          **Checklist:**
+          - [ ] VPN connected? (green tray icon)
+          - [ ] Did you click "Host Session" in the app?
+          - [ ] Is the API reachable? Browser: `http://YOUR_SERVER_IP:8001/health`
+          - [ ] Click "Refresh" to update the list
+
+          ### Session disappears while hosting
+
+          **Cause:** Heartbeat stopped (app closed, sleep mode, network drop)
+
+          **Fix:**
+          - Keep the app running during the session
+          - Disable sleep mode while hosting
+          - Enable "Start with Windows" to auto-reconnect
+
+          ### Session shows "0/X players" even with players connected
+
+          **Cause:** Arma 3 doesn't report player count to the bridge; player count updates require the host to update manually or use RCON.
+
+          **Note:** This is a known limitation in version 1.0.0.
+
+          ## Arma 3 Connection Issues
+
+          ### "Unable to connect to host" in Arma 3
+
+          **Checklist:**
+          - [ ] VPN connected?
+          - [ ] Correct IP? (From session list, format: `10.8.0.x`)
+          - [ ] Port `2302` entered correctly?
+          - [ ] Windows Firewall allows Arma 3?
+
+          **Add Windows Firewall exception:**
+          1. Control Panel → Windows Defender Firewall
+          2. "Allow an app or feature..."
+          3. Add `arma3_x64.exe` with Private + Public checked
+
+          ### High latency / rubber-banding
+
+          **Expected behavior:** VPN adds 10–30 ms latency. This is normal.
+
+          **If latency is unusually high (>100 ms):**
+          1. Check server load: `http://YOUR_SERVER_IP:8090` → Dashboard
+          2. Check your internet connection speed
+          3. Switch to a closer IONOS datacenter if possible
+
+          ## Admin Dashboard Issues
+
+          ### Can't log in to dashboard
+
+          **Cause:** Wrong password or JWT Secret was rotated
+
+          **Fix:**
+          1. Check `ADMIN_PASSWORD` in `/opt/arma3-session-bridge/.env` on the server
+          2. Restart: `docker compose restart api`
+
+          ### Dashboard shows no data
+
+          **Cause:** API not running or CORS issue
+
+          **Fix:**
+          ```bash
+          docker compose ps
+          docker logs arma3-api --tail 50
+          ```
+
+          ## Getting Help
+
+          - [GitHub Issues](https://github.com/YourGitHubUser/arma3-session-bridge/issues)
+          - Check [server logs](#server-logs) first
+
+          ## Server Logs
+
+          ```bash
+          # API logs (most useful)
+          docker logs arma3-api --tail 100 -f
+
+          # WireGuard logs
+          docker logs arma3-wireguard --tail 100
+
+          # All services
+          docker compose logs --tail 50
+          ```
+
+          ## Client Logs
+
+          Location: `%APPDATA%\arma3-session-bridge\logs\`
+
+          Include the latest log file when reporting issues.
+          WIKIEOF
+
+          # Troubleshooting-DE.md
+          cat > Troubleshooting-DE.md << 'WIKIEOF'
+          # Fehlerbehebung (Deutsch)
+
+          ## VPN-Probleme
+
+          ### VPN verbindet sich nicht
+
+          **Symptom:** Tray-Symbol bleibt rot, kein Tooltip-Update
+
+          **Lösungen:**
+          1. **Keine Admin-Rechte:** Rechtsklick → "Als Administrator ausführen"
+          2. **Ungültige .conf Datei:** Einstellungen → gültige `.conf` Datei auswählen
+          3. **Server nicht erreichbar:** `ping YOUR_SERVER_IP` im Command Prompt
+          4. **Port blockiert:** UDP 51820 durch ISP oder Unternehmens-Firewall gesperrt → Mobiles Hotspot versuchen
+          5. **Treiberfehler:** Windows neu starten, dann App neu installieren
+
+          ### VPN verbindet sich, bricht aber zufällig ab
+
+          **Ursache:** Windows Energieverwaltung schaltet Netzwerkadapter ab
+
+          **Lösung:**
+          1. Gerätemanager → Netzwerkadapter → Rechtsklick → Eigenschaften
+          2. Reiter "Energieverwaltung"
+          3. Haken bei "Computer darf dieses Gerät ausschalten" entfernen
+
+          ### WireGuard-Dienst kann nicht installiert werden
+
+          **Ursache:** Vorherige Installation nicht vollständig entfernt
+
+          **Lösung:**
+          ```cmd
+          # Als Administrator ausführen
+          sc stop WireGuardTunnel$arma3-session-bridge
+          sc delete WireGuardTunnel$arma3-session-bridge
+          ```
+          Dann App neu installieren.
+
+          ## Session-Probleme
+
+          ### Session erscheint nicht in der Liste
+
+          **Checkliste:**
+          - [ ] VPN verbunden? (grünes Tray-Symbol)
+          - [ ] „Session hosten" in der App geklickt?
+          - [ ] API erreichbar? Browser: `http://YOUR_SERVER_IP:8001/health`
+          - [ ] „Aktualisieren" klicken
+
+          ### Session verschwindet während des Hostens
+
+          **Ursache:** Heartbeat gestoppt (App geschlossen, Schlafmodus, Netzwerkabbruch)
+
+          **Lösung:**
+          - App während der Session offen lassen
+          - Schlafmodus während des Hostens deaktivieren
+          - „Mit Windows starten" aktivieren für automatische Verbindung
+
+          ### Session zeigt „0/X Spieler" obwohl Spieler verbunden sind
+
+          **Ursache:** Arma 3 meldet Spieleranzahl nicht an die Bridge; erfordert manuelles Update oder RCON.
+
+          **Hinweis:** Bekannte Einschränkung in Version 1.0.0.
+
+          ## Arma 3 Verbindungsprobleme
+
+          ### „Verbindung zum Host nicht möglich" in Arma 3
+
+          **Checkliste:**
+          - [ ] VPN verbunden?
+          - [ ] Richtige IP? (Aus der Session-Liste, Format: `10.8.0.x`)
+          - [ ] Port `2302` korrekt eingegeben?
+          - [ ] Windows-Firewall erlaubt Arma 3?
+
+          **Windows-Firewall Ausnahme hinzufügen:**
+          1. Systemsteuerung → Windows Defender Firewall
+          2. „App oder Feature zulassen..."
+          3. `arma3_x64.exe` hinzufügen mit Privat + Öffentlich aktiviert
+
+          ### Hohe Latenz / Rubber-Banding
+
+          **Erwartetes Verhalten:** VPN fügt 10–30 ms hinzu. Das ist normal.
+
+          **Bei ungewöhnlich hoher Latenz (>100 ms):**
+          1. Server-Last prüfen: `http://YOUR_SERVER_IP:8090` → Dashboard
+          2. Eigene Internetverbindung prüfen
+          3. Nächstes IONOS-Rechenzentrum verwenden wenn möglich
+
+          ## Admin-Dashboard Probleme
+
+          ### Kann mich nicht im Dashboard anmelden
+
+          **Ursache:** Falsches Passwort oder JWT Secret wurde rotiert
+
+          **Lösung:**
+          1. `ADMIN_PASSWORD` in `/opt/arma3-session-bridge/.env` auf dem Server prüfen
+          2. Neustart: `docker compose restart api`
+
+          ### Dashboard zeigt keine Daten
+
+          **Ursache:** API läuft nicht oder CORS-Problem
+
+          **Lösung:**
+          ```bash
+          docker compose ps
+          docker logs arma3-api --tail 50
+          ```
+
+          ## Server-Logs
+
+          ```bash
+          # API-Logs (am nützlichsten)
+          docker logs arma3-api --tail 100 -f
+
+          # WireGuard-Logs
+          docker logs arma3-wireguard --tail 100
+
+          # Alle Services
+          docker compose logs --tail 50
+          ```
+
+          ## Client-Logs
+
+          Speicherort: `%APPDATA%\arma3-session-bridge\logs\`
+
+          Neueste Log-Datei bei der Fehlerberichterstattung einsenden.
+          WIKIEOF
+
+          # FAQ.md
+          cat > FAQ.md << 'WIKIEOF'
+          # FAQ — Frequently Asked Questions (English)
+
+          ## General
+
+          **Q: Is this software free to use?**
+          A: Yes, the software is open-source and free. You'll need a VPS (approximately €4–8/month on IONOS) to run the server component.
+
+          **Q: Can I use this without a VPS?**
+          A: No. The WireGuard server requires a machine with a public IP address. A VPS is the simplest solution.
+
+          **Q: Is my data safe?**
+          A: All VPN traffic is encrypted end-to-end using WireGuard (Curve25519, ChaCha20-Poly1305). Only game traffic is routed through the VPN (split-tunnel). The server never sees your actual game content.
+
+          **Q: How many players can use this simultaneously?**
+          A: The software supports unlimited players technically. In practice:
+          - IONOS smallest plan (1 vCore, 1 GB RAM): comfortable for 8–16 players
+          - IONOS medium plan (2 vCore, 4 GB RAM): comfortable for 32+ players
+
+          **Q: Can I use a different cloud provider?**
+          A: Yes! Any Linux VPS with a public IP works. Just update `WG_SERVER_IP` in `.env`.
+
+          ## Technical Questions
+
+          **Q: Do I need to open ports on my router?**
+          A: No! That's the whole point. Players only need outbound UDP 51820 allowed (this works in most home networks, mobile hotspots, and many corporate networks).
+
+          **Q: What is "split-tunnel" mode?**
+          A: Only traffic destined for `10.8.0.0/24` goes through the VPN tunnel. Your regular internet browsing, streaming, etc. bypasses the tunnel completely — no performance impact on non-game traffic.
+
+          **Q: What if UDP 51820 is blocked (corporate/school network)?**
+          A: Options:
+          1. Use a mobile hotspot
+          2. Change `WG_PORT` to a different UDP port (e.g. 443 or 53)
+          3. Contact your network administrator
+
+          **Q: Is WireGuard installed separately?**
+          A: No. The NSIS installer bundles everything including the WireGuard kernel driver.
+
+          **Q: What happens to my regular internet when VPN is connected?**
+          A: Nothing changes for regular internet traffic. Split-tunnel means only Arma 3 VPN traffic uses the tunnel.
+
+          ## Hosting Questions
+
+          **Q: How do other players find my session?**
+          A: When you click "Host Session", your tunnel IP (`10.8.0.x`) and mission info are registered on the server. Other players see it in their Session List within 30 seconds.
+
+          **Q: Do I need to keep the app open while hosting?**
+          A: Yes. The app sends heartbeats every 60 seconds. If you close it or disconnect VPN, the session is removed from the list within 5 minutes.
+
+          **Q: Can I host without being the Arma 3 server?**
+          A: No. The player who runs `arma3-session-bridge` host mode is also the Arma 3 game server. Other players connect to your tunnel IP.
+
+          **Q: What is the Arma 3 port to use?**
+          A: Default Arma 3 port `2302`. In Direct Connect: `10.8.0.2:2302` (where `10.8.0.2` is the host's tunnel IP).
+
+          ## Arma 3 Specific
+
+          **Q: Do mods work?**
+          A: Yes! The VPN is transport-layer only. Arma 3 mods, mission files, etc. work exactly as in normal multiplayer. Just make sure all players have the same mods loaded.
+
+          **Q: Does Join-In-Progress (JIP) work?**
+          A: Yes, if the mission allows it. The bridge software has no restrictions on when players can join.
+
+          **Q: Can I use Zeus/game master?**
+          A: Yes, all Arma 3 features work normally.
+
+          **Q: What about Arma Reforger?**
+          A: This software was designed for Arma 3. Arma Reforger has different networking and is not supported.
+
+          ## Admin Dashboard
+
+          **Q: How do I access the admin dashboard?**
+          A: Browser: `http://YOUR_SERVER_IP:8090` — login with your `ADMIN_PASSWORD`.
+
+          **Q: Can I revoke a player's access?**
+          A: Yes. In the dashboard under "Peers", click the trash icon next to the player's peer. They can no longer connect to the VPN.
+
+          **Q: Is the dashboard accessible from the internet?**
+          A: Yes, but we recommend adding basic firewall rules or a reverse proxy with HTTPS for production use.
+
+          ## Troubleshooting
+
+          **Q: The installer says "Access Denied".**
+          A: Right-click the installer → "Run as administrator". Administrator rights are required.
+
+          **Q: My antivirus flags the installer.**
+          A: False positive from the WireGuard kernel driver bundling. Add an exception or download from the official GitHub Releases page.
+
+          **Q: The session list always shows empty.**
+          A: Check that your VPN is connected and the API is reachable: `http://YOUR_SERVER_IP:8001/sessions`
+
+          **Q: After Windows Update, the VPN stopped working.**
+          A: Reinstall the application as administrator. Windows Updates sometimes reset WireGuard drivers.
+          WIKIEOF
+
+          # FAQ-DE.md
+          cat > FAQ-DE.md << 'WIKIEOF'
+          # FAQ — Häufig gestellte Fragen (Deutsch)
+
+          ## Allgemein
+
+          **F: Ist die Software kostenlos?**
+          A: Ja, die Software ist Open-Source und kostenlos. Du brauchst einen VPS (ca. 4–8 €/Monat bei IONOS) für die Server-Komponente.
+
+          **F: Kann ich das ohne VPS nutzen?**
+          A: Nein. Der WireGuard-Server benötigt eine Maschine mit öffentlicher IP-Adresse. Ein VPS ist die einfachste Lösung.
+
+          **F: Sind meine Daten sicher?**
+          A: Ja. Aller VPN-Traffic ist Ende-zu-Ende mit WireGuard verschlüsselt (Curve25519, ChaCha20-Poly1305). Nur Spiel-Traffic wird durch den VPN geleitet (Split-Tunnel). Der Server sieht niemals deinen tatsächlichen Spielinhalt.
+
+          **F: Wie viele Spieler können gleichzeitig mitspielen?**
+          A: Die Software unterstützt technisch unbegrenzt viele Spieler. In der Praxis:
+          - IONOS kleinster Plan (1 vCore, 1 GB RAM): Gut für 8–16 Spieler
+          - IONOS mittlerer Plan (2 vCore, 4 GB RAM): Gut für 32+ Spieler
+
+          **F: Kann ich einen anderen Cloud-Anbieter verwenden?**
+          A: Ja! Jeder Linux VPS mit öffentlicher IP funktioniert. Einfach `WG_SERVER_IP` in `.env` anpassen.
+
+          ## Technische Fragen
+
+          **F: Muss ich Ports am Router freigeben?**
+          A: Nein! Das ist der Sinn der Sache. Spieler brauchen nur ausgehend UDP 51820 erlaubt (funktioniert in den meisten Heimnetzwerken, Hotspots und vielen Firmennetzwerken).
+
+          **F: Was bedeutet „Split-Tunnel" Modus?**
+          A: Nur Traffic zu `10.8.0.0/24` läuft durch den VPN-Tunnel. Normales Surfen, Streaming etc. geht am Tunnel vorbei — kein Leistungseinbruch für Nicht-Spiel-Traffic.
+
+          **F: Was tun wenn UDP 51820 blockiert ist (Firma/Schule)?**
+          A: Optionen:
+          1. Mobilen Hotspot verwenden
+          2. `WG_PORT` auf anderen UDP-Port ändern (z.B. 443 oder 53)
+          3. Netzwerkadministrator kontaktieren
+
+          **F: Wird WireGuard separat installiert?**
+          A: Nein. Der NSIS-Installer enthält alles, einschließlich dem WireGuard-Kernel-Treiber.
+
+          **F: Was passiert mit meinem normalen Internet wenn der VPN verbunden ist?**
+          A: Nichts ändert sich für normalen Internet-Traffic. Split-Tunnel bedeutet: Nur Arma 3 VPN-Traffic geht durch den Tunnel.
+
+          ## Hosting-Fragen
+
+          **F: Wie finden andere Spieler meine Session?**
+          A: Wenn du auf „Session hosten" klickst, wird deine Tunnel-IP (`10.8.0.x`) und Missionsinfo auf dem Server registriert. Andere Spieler sehen sie innerhalb von 30 Sekunden in der Session-Liste.
+
+          **F: Muss ich die App während des Hostens offen lassen?**
+          A: Ja. Die App sendet alle 60 Sekunden Heartbeats. Wenn du sie schließt oder den VPN trennst, wird die Session innerhalb von 5 Minuten aus der Liste entfernt.
+
+          **F: Kann ich hosten ohne der Arma 3 Server zu sein?**
+          A: Nein. Der Spieler der `arma3-session-bridge` im Host-Modus betreibt, ist auch der Arma 3 Spielserver. Andere Spieler verbinden sich mit deiner Tunnel-IP.
+
+          **F: Welchen Arma 3 Port verwenden?**
+          A: Standard Arma 3 Port `2302`. Bei Direktverbindung: `10.8.0.2:2302` (wobei `10.8.0.2` die Tunnel-IP des Hosts ist).
+
+          ## Arma 3 spezifisch
+
+          **F: Funktionieren Mods?**
+          A: Ja! Der VPN ist nur auf Transport-Ebene. Arma 3 Mods, Missions-Dateien etc. funktionieren exakt wie im normalen Multiplayer. Alle Spieler müssen dieselben Mods haben.
+
+          **F: Funktioniert Join-In-Progress (JIP)?**
+          A: Ja, wenn die Mission es erlaubt. Die Bridge-Software hat keine Einschränkungen beim Beitreten.
+
+          **F: Kann ich Zeus/Game Master nutzen?**
+          A: Ja, alle Arma 3 Funktionen funktionieren normal.
+
+          **F: Was ist mit Arma Reforger?**
+          A: Diese Software wurde für Arma 3 entwickelt. Arma Reforger hat andere Netzwerkarchitektur und wird nicht unterstützt.
+
+          ## Admin-Dashboard
+
+          **F: Wie komme ich ins Admin-Dashboard?**
+          A: Browser: `http://YOUR_SERVER_IP:8090` — Anmelden mit deinem `ADMIN_PASSWORD`.
+
+          **F: Kann ich den Zugang eines Spielers entziehen?**
+          A: Ja. Im Dashboard unter „Peers" auf das Mülleimer-Symbol neben dem Spieler klicken. Dieser kann sich nicht mehr mit dem VPN verbinden.
+
+          **F: Ist das Dashboard aus dem Internet erreichbar?**
+          A: Ja, aber wir empfehlen für den Produktionseinsatz grundlegende Firewall-Regeln oder einen Reverse-Proxy mit HTTPS.
+
+          ## Fehlerbehebung
+
+          **F: Der Installer sagt „Zugriff verweigert".**
+          A: Rechtsklick auf den Installer → „Als Administrator ausführen". Administrator-Rechte sind erforderlich.
+
+          **F: Mein Antivirusprogramm markiert den Installer.**
+          A: False-Positive durch das gebündelte WireGuard Kernel-Treiber-Paket. Ausnahme hinzufügen oder von der offiziellen GitHub Releases-Seite herunterladen.
+
+          **F: Die Session-Liste zeigt immer „Keine Sessions".**
+          A: Prüfen ob VPN verbunden ist und API erreichbar: `http://YOUR_SERVER_IP:8001/sessions`
+
+          **F: Nach Windows-Update funktioniert VPN nicht mehr.**
+          A: App als Administrator neu installieren. Windows-Updates können WireGuard-Treiber zurücksetzen.
+          WIKIEOF
+
+      - name: Commit and push wiki
+        run: |
+          cd wiki-repo
+          git add -A
+          git commit -m "docs: add wiki pages (Home, Installation, Configuration, Troubleshooting, FAQ — DE+EN)"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git HEAD:master
