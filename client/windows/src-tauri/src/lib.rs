@@ -2,7 +2,8 @@
 ///
 /// Exports:
 ///   - Tauri commands: connect_vpn, disconnect_vpn, check_vpn_status,
-///     get_sessions, host_session, join_session, send_heartbeat
+///     get_sessions, host_session, join_session, send_heartbeat,
+///     validate_conf, get_host_ip, download_peer_config
 ///   - System-Tray with: Connect / Disconnect / Quit menu items
 ///   - Auto-Heartbeat: sends PUT /sessions/{id}/heartbeat every 60 s when hosting
 ///   - `run()` — entry point called from main.rs
@@ -68,6 +69,7 @@ fn connect_vpn(
     // Update tray tooltip to show assigned tunnel IP
     if let Some(tray) = app.tray_by_id(state.tray_id.as_str()) {
         let _ = tray.set_tooltip(Some(
+            format!("Connected: {}", ip).as_str(),
             format!("Arma 3 Session Bridge — Connected ({})", ip).as_str(),
         ));
     }
@@ -93,7 +95,7 @@ async fn disconnect_vpn(
     }
     // Reset tray tooltip
     if let Some(tray) = app.tray_by_id(state.tray_id.as_str()) {
-        let _ = tray.set_tooltip(Some("Arma 3 Session Bridge — Disconnected"));
+        let _ = tray.set_tooltip(Some("Disconnected"));
     }
     Ok("VPN disconnected".to_string())
 }
@@ -104,8 +106,26 @@ async fn disconnect_vpn(
 ///
 /// Returns [`VpnStatus`] with `connected`, `tunnel_ip`, `tunnel_name`.
 #[tauri::command]
-fn check_vpn_status(tunnel_name: String) -> Result<VpnStatus, String> {
-    vpn::check_vpn_status(&tunnel_name)
+#[tauri::command]
+fn check_vpn_status(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    tunnel_name: String,
+) -> Result<VpnStatus, String> {
+    let status = vpn::check_vpn_status(&tunnel_name)?;
+
+    // Update tray tooltip to reflect current connection state
+    if let Some(tray) = app.tray_by_id(state.tray_id.as_str()) {
+        let tooltip = if status.connected {
+            let ip = status.tunnel_ip.as_deref().unwrap_or("unknown");
+            format!("Connected: {}", ip)
+        } else {
+            "Disconnected".to_string()
+        };
+        let _ = tray.set_tooltip(Some(tooltip.as_str()));
+    }
+
+    Ok(status)
 }
 
 // ─── Session Commands ─────────────────────────────────────────────────────────
@@ -234,6 +254,95 @@ async fn send_heartbeat(session_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ─── Config Commands ──────────────────────────────────────────────────────────
+
+/// Validate a WireGuard .conf file for correct Split-Tunnel configuration.
+///
+/// Checks that the file:
+///   - Contains the `[Interface]` section header
+///   - Has `AllowedIPs` with `10.8.0.0/24` (split-tunnel only)
+///   - Does NOT have `0.0.0.0/0` on any AllowedIPs line (no full-tunnel)
+///
+/// Returns `Ok(false)` when the file does not exist (first-run).
+///
+/// Invoked from frontend: `invoke('validate_conf', { path: '...' })`
+#[tauri::command]
+fn validate_conf(path: String) -> Result<bool, String> {
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        // File missing → first run, not an error
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(format!("Failed to read conf file: {e}")),
+    };
+
+    let has_interface = content.contains("[Interface]");
+
+    // AllowedIPs line must include 10.8.0.0/24 and must NOT include 0.0.0.0/0
+    let has_split_tunnel = content.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("AllowedIPs")
+            && trimmed.contains("10.8.0.0/24")
+            && !trimmed.contains("0.0.0.0/0")
+    });
+
+    Ok(has_interface && has_split_tunnel)
+}
+
+/// Get the current WireGuard tunnel IP address.
+///
+/// Delegates to [`vpn::get_tunnel_ip`] which scans active network interfaces
+/// for a `10.8.0.x` address.
+///
+/// Invoked from frontend: `invoke('get_host_ip')`
+#[tauri::command]
+fn get_host_ip() -> Result<String, String> {
+    vpn::get_tunnel_ip()
+}
+
+/// Download a peer's WireGuard config from the bridge API and save to disk.
+///
+/// Calls `GET {api_url}/peers/{peer_id}/config` and writes the response body
+/// to `save_path`, creating parent directories if needed.
+///
+/// Invoked from frontend:
+///   `invoke('download_peer_config', { apiUrl, peerId, savePath })`
+#[tauri::command]
+async fn download_peer_config(
+    api_url: String,
+    peer_id: String,
+    save_path: String,
+) -> Result<(), String> {
+    let url = format!("{}/peers/{}/config", api_url.trim_end_matches('/'), peer_id);
+
+    let response = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "API error {}: {}",
+            response.status(),
+            response.status().canonical_reason().unwrap_or("Unknown")
+        ));
+    }
+
+    let content = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
+
+    // Create parent directories if they don't exist (e.g. C:\ProgramData\WireGuard\)
+    if let Some(parent) = std::path::Path::new(&save_path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {e}"))?;
+    }
+
+    std::fs::write(&save_path, content)
+        .map_err(|e| format!("Failed to write conf file: {e}"))?;
+
+    Ok(())
+}
+
 // ─── Application Entry ─────────────────────────────────────────────────────────
 
 /// Build and run the Tauri application.
@@ -338,6 +447,9 @@ pub fn run() {
             host_session,
             join_session,
             send_heartbeat,
+            validate_conf,
+            get_host_ip,
+            download_peer_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
