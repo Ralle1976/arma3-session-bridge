@@ -20,8 +20,9 @@ DB_PATH = Path(os.getenv("DB_PATH", "/app/data/arma3.db"))
 @asynccontextmanager
 async def get_connection():
     """Async context manager that yields an aiosqlite connection with WAL mode."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    async with aiosqlite.connect(str(DB_PATH)) as conn:
+    db_path = Path(os.getenv("DB_PATH", str(DB_PATH)))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(db_path)) as conn:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA foreign_keys=ON")

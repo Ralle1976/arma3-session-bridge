@@ -30,7 +30,8 @@ def create_admin_token() -> str:
     Returns:
         Encoded JWT string.
     """
-    if not JWT_SECRET:
+    _secret = os.getenv("JWT_SECRET", JWT_SECRET)
+    if not _secret:
         raise RuntimeError("JWT_SECRET is not configured")
 
     now = datetime.now(tz=timezone.utc)
@@ -40,7 +41,7 @@ def create_admin_token() -> str:
         "iat": now,
         "exp": now + timedelta(minutes=JWT_EXPIRE_MINUTES),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, _secret, algorithm=JWT_ALGORITHM)
 
 
 def _decode_token(token: str) -> dict:
@@ -55,13 +56,14 @@ def _decode_token(token: str) -> dict:
     Raises:
         HTTPException 401: if token is invalid or expired.
     """
-    if not JWT_SECRET:
+    _secret = os.getenv("JWT_SECRET", JWT_SECRET)
+    if not _secret:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="JWT_SECRET not configured",
         )
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, _secret, algorithms=[JWT_ALGORITHM])
         return payload
     except JWTError as exc:
         raise HTTPException(
