@@ -1,0 +1,65 @@
+openapi: 3.0.0
+info:
+  title: Arma 3 Session Bridge API
+  version: 1.0.0
+  description: Placeholder OpenAPI spec copied for skeleton repo.
+servers:
+  - url: https://your-server.example.com/api
+  - url: http://127.0.0.1:8000
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /auth/login:
+    post:
+      summary: Admin login placeholder
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+  /peers:
+    get:
+      summary: List peers placeholder
+      responses:
+        '200':
+          description: Array of peers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        version:
+          type: string
+        uptime_seconds:
+          type: integer
