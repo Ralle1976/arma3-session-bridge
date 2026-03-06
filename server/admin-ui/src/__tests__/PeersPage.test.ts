@@ -44,7 +44,7 @@ const mockPeers: Peer[] = [
 // ── listPeers ────────────────────────────────────────────────────────────────
 
 describe('listPeers()', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('calls GET /peers', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,7 +79,7 @@ describe('listPeers()', () => {
 // ── createPeer ───────────────────────────────────────────────────────────────
 
 describe('createPeer(name)', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('calls POST /peers with the peer name', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -102,7 +102,7 @@ describe('createPeer(name)', () => {
 // ── deletePeer ───────────────────────────────────────────────────────────────
 
 describe('deletePeer(id)', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => { vi.clearAllMocks() })
 
   it('calls DELETE /peers/:id', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
