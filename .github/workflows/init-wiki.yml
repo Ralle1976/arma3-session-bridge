@@ -1,8 +1,6 @@
 name: Initialize Wiki Pages
 
 # Trigger manually via GitHub Actions UI or API
-# Requires: wiki to be initialized in the GitHub web UI first
-# (visit the repo wiki page and click "Create the first wiki page")
 on:
   workflow_dispatch:
 
@@ -21,14 +19,30 @@ jobs:
           git config --global user.name "Ralle1976"
           git config --global user.email "ralf.arnold@it-bfw.de"
 
-      - name: Clone wiki repository
+      - name: Bootstrap wiki if needed, then push pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          git clone \
-            https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git \
-            wiki-repo
+          set -e
+          WIKI_URL="https://x-access-token:$GH_TOKEN@github.com/$REPO.wiki.git"
 
-      - name: Copy wiki pages from repo to wiki repo
-        run: |
+          if git clone "$WIKI_URL" wiki-repo 2>/dev/null; then
+            echo "Cloned existing wiki"
+          else
+            echo "Bootstrapping wiki with force-push..."
+            mkdir wiki-repo && cd wiki-repo
+            git init && git checkout -b master
+            echo "# Arma 3 Session Bridge Wiki" > Home.md
+            git add Home.md
+            git commit -m "init: bootstrap wiki"
+            git remote add origin "$WIKI_URL"
+            git push --force origin master
+            cd .. && sleep 8
+            rm -rf wiki-repo
+            git clone "$WIKI_URL" wiki-repo
+          fi
+
           cp wiki/Home.md            wiki-repo/Home.md
           cp wiki/Installation.md    wiki-repo/Installation.md
           cp wiki/Installation-DE.md wiki-repo/Installation-DE.md
@@ -39,10 +53,9 @@ jobs:
           cp wiki/FAQ.md             wiki-repo/FAQ.md
           cp wiki/FAQ-DE.md          wiki-repo/FAQ-DE.md
 
-      - name: Commit and push wiki
-        run: |
           cd wiki-repo
           git add -A
           git diff --cached --stat
-          git commit -m "docs: sync wiki pages from main repo (Home, Installation, Configuration, Troubleshooting, FAQ — DE+EN)" || echo "Nothing to commit"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git HEAD:master
+          git commit -m "docs: sync wiki pages (Home, Installation, Configuration, Troubleshooting, FAQ — DE+EN)" || echo "Nothing to commit"
+          git push "$WIKI_URL" HEAD:master
+          echo "Done!"

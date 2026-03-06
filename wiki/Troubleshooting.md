@@ -5,7 +5,7 @@
 Before diving into specific issues, run through this checklist:
 
 - [ ] Is the tray icon **green**? (VPN connected)
-- [ ] Is the API reachable? `curl http://212.227.54.229:8001/health`
+- [ ] Is the API reachable? `curl http://YOUR_SERVER_IP:8001/health`
 - [ ] Was the app started as **Administrator**?
 - [ ] Is the `.conf` file valid? (Setup wizard validates it)
 - [ ] Is port `51820/udp` **outbound** allowed?
@@ -22,7 +22,7 @@ Before diving into specific issues, run through this checklist:
 |-------|----------|
 | Not running as administrator | Right-click → "Run as administrator" |
 | Invalid `.conf` file | Reinstall and select a valid `.conf` file |
-| Server unreachable | `ping 212.227.54.229` — if fails, check VPS status |
+| Server unreachable | `ping YOUR_SERVER_IP` — if fails, check VPS status |
 | UDP 51820 blocked | Try mobile hotspot; contact network admin |
 | WireGuard driver error | Restart Windows; reinstall application |
 | Antivirus interference | Add app exception in antivirus settings |
@@ -30,10 +30,10 @@ Before diving into specific issues, run through this checklist:
 **Diagnostic commands:**
 ```cmd
 # Test server reachability (Command Prompt)
-ping 212.227.54.229
+ping YOUR_SERVER_IP
 
 # Test API health
-curl http://212.227.54.229:8001/health
+curl http://YOUR_SERVER_IP:8001/health
 
 # Check if WireGuard service exists
 sc query type= all | findstr WireGuard
@@ -77,7 +77,7 @@ ping 10.8.0.1
 
 **If not responding:**
 1. Check WireGuard config — `AllowedIPs` must include `10.8.0.0/24`
-2. Verify the endpoint IP matches the server: `212.227.54.229:51820`
+2. Verify the endpoint IP matches the server: `YOUR_SERVER_IP:51820`
 3. Check server logs: `docker logs arma3-wireguard --tail 50`
 
 ---
@@ -91,7 +91,7 @@ ping 10.8.0.1
 2. Did you click "Host Session" in the app?
 3. Click "Refresh" in the session list
 4. Wait 30 seconds (list auto-refreshes)
-5. Check API: `curl http://212.227.54.229:8001/sessions`
+5. Check API: `curl http://YOUR_SERVER_IP:8001/sessions`
 
 **If API returns empty list but you're hosting:**
 - The heartbeat may have failed
@@ -147,7 +147,7 @@ ping 10.8.0.1
 **Expected:** VPN adds 10–30 ms. All players share the same VPN server latency.
 
 **If ping is unusually high (>100 ms):**
-1. Check server load: `http://212.227.54.229:8090` → Dashboard → Stats
+1. Check server load: `http://YOUR_SERVER_IP:8090` → Dashboard → Stats
 2. Check your upload bandwidth (WireGuard game traffic uses upload on host)
 3. Run `ping 10.8.0.1` — if >50 ms, your internet or the VPS is the bottleneck
 

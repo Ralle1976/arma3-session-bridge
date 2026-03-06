@@ -45,10 +45,11 @@ services:
       - arma3-net
 
   admin-ui:
-    image: nginx:alpine
+    build:
+      context: ./server/admin-ui
+      args:
+        VITE_API_URL: /api
     container_name: arma3-admin-ui
-    volumes:
-      - ./server/admin-ui:/usr/share/nginx/html:ro
     ports:
       - "${ADMIN_UI_PORT:-8090}:80"
     restart: unless-stopped

@@ -4,7 +4,7 @@
 
 **F: Ist die Software kostenlos?**
 
-A: Ja. Die Software ist Open-Source. Du zahlst nur für den VPS — ca. 4–8 €/Monat bei IONOS für den kleinsten Plan, der für eine private Gruppe von Freunden ausreicht.
+A: Ja. Die Software ist Open-Source. Du zahlst nur für den VPS — ca. 4–8 €/Monat at any VPS provider for den kleinsten Plan, der für eine private Gruppe von Freunden ausreicht.
 
 ---
 
@@ -26,8 +26,8 @@ A: Nur Arma 3 VPN-Traffic läuft durch den Tunnel (Split-Tunnel). Normales Surfe
 **F: Wie viele gleichzeitige Spieler werden unterstützt?**
 
 A: Technisch unbegrenzt. Praktisch:
-- IONOS Cloud XS (1 vCore, 1 GB RAM, 100 Mbit/s): Komfortabel für 8–12 Spieler
-- IONOS Cloud S (2 vCore, 4 GB RAM, 200 Mbit/s): Komfortabel für 20–32 Spieler
+- Cloud XS-equivalent (1 vCore, 1 GB RAM, 100 Mbit/s): Komfortabel für 8–12 Spieler
+- Cloud S-equivalent (2 vCore, 4 GB RAM, 200 Mbit/s): Komfortabel für 20–32 Spieler
 - Größere Pläne für 40+ Spieler
 
 ---
@@ -146,7 +146,7 @@ A: Ja, wenn die Mission JIP erlaubt. Die Bridge hat keine Einschränkungen beim 
 **F: Wie füge ich einen neuen Spieler hinzu?**
 
 A: Im Admin-Dashboard:
-1. Anmelden unter `http://212.227.54.229:8090`
+1. Anmelden unter `http://YOUR_SERVER_IP:8090`
 2. Zu „Peers" gehen
 3. „+ Peer hinzufügen" klicken
 4. Spieler-Namen eingeben

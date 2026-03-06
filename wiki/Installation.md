@@ -49,7 +49,7 @@ Required values:
 ```env
 ADMIN_PASSWORD=your-strong-password-here
 JWT_SECRET=your-random-secret-minimum-32-characters
-WG_SERVER_IP=212.227.54.229
+WG_SERVER_IP=YOUR_SERVER_IP
 WG_PORT=51820
 API_PORT=8001
 ADMIN_UI_PORT=8090
@@ -156,7 +156,7 @@ File: `arma3-session-bridge-setup.exe`
    - Step 1: Click "Next"
    - Step 2: Choose installation directory (default: `C:\Program Files\Arma3SessionBridge\`)
    - Step 3: Browse and select your `.conf` file
-   - Step 4: Enter API URL: `http://212.227.54.229:8001`
+   - Step 4: Enter API URL: `http://YOUR_SERVER_IP:8001`
    - Step 5: Click "Install"
 4. Click "Finish"
 

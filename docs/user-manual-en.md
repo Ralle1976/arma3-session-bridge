@@ -36,11 +36,11 @@ Arma 3 multiplayer requires open ports on your router (default UDP 2302). In mod
 
 ### The Solution
 
-Arma 3 Session Bridge routes all game traffic through a WireGuard VPN server hosted on an IONOS VPS (Virtual Private Server). All players connect to this server and play over a private VPN network `10.8.0.0/24`.
+Arma 3 Session Bridge routes all game traffic through a WireGuard VPN server hosted on an your VPS (Virtual Private Server). All players connect to this server and play over a private VPN network `10.8.0.0/24`.
 
 ```
 Player A ──WireGuard──┐
-Player B ──WireGuard──┼── VPS (public IP: 212.227.54.229)
+Player B ──WireGuard──┼── VPS (public IP: YOUR_SERVER_IP)
 Player C ──WireGuard──┘      └── private network: 10.8.0.0/24
 
 Player C connects in Arma 3 to: 10.8.0.2 (tunnel IP of Player A)
@@ -60,7 +60,7 @@ Player C connects in Arma 3 to: 10.8.0.2 (tunnel IP of Player A)
 
 ## 2. System Requirements
 
-### Server (IONOS VPS)
+### Server (your VPS)
 
 | Requirement | Minimum | Recommended |
 |-------------|---------|-------------|
@@ -95,10 +95,10 @@ Player C connects in Arma 3 to: 10.8.0.2 (tunnel IP of Player A)
 
 ### 3.1 Install Prerequisites
 
-Connect to your IONOS VPS via SSH:
+Connect to your your VPS via SSH:
 
 ```bash
-ssh root@212.227.54.229
+ssh root@YOUR_SERVER_IP
 ```
 
 Install Docker and Docker Compose (AlmaLinux 9):
@@ -141,8 +141,8 @@ ADMIN_PASSWORD=my-secure-password-here
 # JWT signing secret (minimum 32 characters!)
 JWT_SECRET=a-long-random-secret-string-here
 
-# Public IP of your IONOS server
-WG_SERVER_IP=212.227.54.229
+# Public IP of your your server
+WG_SERVER_IP=YOUR_SERVER_IP
 
 # WireGuard port (default: 51820)
 WG_PORT=51820
@@ -285,7 +285,7 @@ docker compose up -d --build
 - Click "Next"
 
 **Step 4 — API Server URL**
-- Default: `http://212.227.54.229:8001`
+- Default: `http://YOUR_SERVER_IP:8001`
 - Only change if your server has a different IP
 - Click "Next"
 
@@ -346,7 +346,7 @@ After a successful connection:
 ### 5.4 Connection Issues
 
 If the connection fails:
-1. Check if the server is reachable: `ping 212.227.54.229`
+1. Check if the server is reachable: `ping YOUR_SERVER_IP`
 2. Check Windows Firewall (WireGuard must be allowed)
 3. Verify the `.conf` file is correctly placed
 4. Restart the application as **Administrator**
@@ -444,7 +444,7 @@ The list shows for each active session:
 The Admin Dashboard is accessible in your web browser:
 
 ```
-http://212.227.54.229:8090
+http://YOUR_SERVER_IP:8090
 ```
 
 Log in with the `ADMIN_PASSWORD` configured in `.env`.
@@ -523,8 +523,8 @@ The log is updated live via **Server-Sent Events (SSE)**.
    → Open settings → select a new .conf file
 
 3. Server unreachable
-   → ping 212.227.54.229 in Command Prompt
-   → If no ping: check VPS (IONOS console)
+   → ping YOUR_SERVER_IP in Command Prompt
+   → If no ping: check VPS (VPS console)
 
 4. UDP port 51820 blocked
    → Contact network admin (school/corporate)
@@ -542,7 +542,7 @@ The log is updated live via **Server-Sent Events (SSE)**.
 **Solutions:**
 1. Manually refresh the list (click "Refresh")
 2. Check if VPN is connected
-3. Test API connection: Browser → `http://212.227.54.229:8001/health`
+3. Test API connection: Browser → `http://YOUR_SERVER_IP:8001/health`
 4. Check if the peer token is still valid
 
 ### 9.3 Connection Fails in Arma 3
@@ -608,10 +608,10 @@ docker logs arma3-admin-ui --tail 50
 ### General
 
 **Q: Does it cost anything to use?**  
-A: The software itself is free. The IONOS VPS costs approximately €4–8/month.
+A: The software itself is free. The your VPS costs approximately €4–8/month.
 
 **Q: How many players can be connected simultaneously?**  
-A: Technically unlimited, practically limited by the VPS plan. The smallest IONOS plan is sufficient for 8–16 players.
+A: Technically unlimited, practically limited by the VPS plan. The smallest VPS plan is sufficient for 8–16 players.
 
 **Q: Is the connection secure?**  
 A: Yes. WireGuard uses modern cryptography (Curve25519, ChaCha20-Poly1305). All connections are end-to-end encrypted.
@@ -628,7 +628,7 @@ A: None! All traffic runs through the WireGuard tunnel. Only outbound UDP 51820 
 A: Minimally. The VPN server typically adds 10–30 ms. Since all players connect through the same server, everyone plays under equal conditions.
 
 **Q: What happens if the VPS server goes down?**  
-A: All connections are dropped. Sessions are lost. The IONOS VPS has a 99.9% uptime guarantee.
+A: All connections are dropped. Sessions are lost. The your VPS has a 99.9% uptime guarantee.
 
 **Q: Can I use my own server?**  
 A: Yes! Change `WG_SERVER_IP` in the `.env` file to your server's IP.

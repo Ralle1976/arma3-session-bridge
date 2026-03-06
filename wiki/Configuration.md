@@ -103,7 +103,7 @@ DNS = 1.1.1.1
 PublicKey = <server-public-key>
 PresharedKey = <preshared-key>
 AllowedIPs = 10.8.0.0/24
-Endpoint = 212.227.54.229:51820
+Endpoint = YOUR_SERVER_IP:51820
 PersistentKeepalive = 25
 ```
 
@@ -133,7 +133,7 @@ The client app automatically **rejects** full-tunnel configurations (security ch
 Internet
   │
   ▼
-212.227.54.229 (IONOS VPS — AlmaLinux 9.7)
+YOUR_SERVER_IP (your VPS — AlmaLinux 9.7)
   │
   ├── :51820/udp  ──── arma3-wireguard ────────┐
   ├── :8001/tcp   ──── arma3-api (FastAPI)     │
@@ -151,7 +151,7 @@ VPN: 10.8.0.0/24                               │
 The Windows client uses a hardcoded API URL in `src-tauri/src/lib.rs`:
 
 ```rust
-const API_BASE_URL: &str = "https://arma3.ralle1976.cloud/api";
+const API_BASE_URL: &str = "https://your-domain.example.com/api";
 ```
 
 To use a custom server, rebuild the Tauri app with your API URL substituted.

@@ -4,7 +4,7 @@
 
 **Q: Is this software free?**
 
-A: Yes. The software is open-source (MIT-adjacent license). You pay only for the VPS — approximately €4–8/month on IONOS for the smallest plan, which is sufficient for a private group of friends.
+A: Yes. The software is open-source (MIT-adjacent license). You pay only for the VPS — approximately €4–8/month at any VPS provider for the smallest plan, which is sufficient for a private group of friends.
 
 ---
 
@@ -26,8 +26,8 @@ A: Only Arma 3 VPN traffic goes through the tunnel (split-tunnel). All other tra
 **Q: How many simultaneous players are supported?**
 
 A: Technically unlimited. Practically:
-- IONOS Cloud XS (1 vCore, 1 GB RAM, 100 Mbit/s): comfortable for 8–12 players
-- IONOS Cloud S (2 vCore, 4 GB RAM, 200 Mbit/s): comfortable for 20–32 players
+- Cloud XS-equivalent (1 vCore, 1 GB RAM, 100 Mbit/s): comfortable for 8–12 players
+- Cloud S-equivalent (2 vCore, 4 GB RAM, 200 Mbit/s): comfortable for 20–32 players
 - Any larger plan supports 40+ players
 
 ---
@@ -160,7 +160,7 @@ A: Most mods work. Mods that add custom network protocols or require specific se
 **Q: How do I add a new player?**
 
 A: In the Admin Dashboard:
-1. Login at `http://212.227.54.229:8090`
+1. Login at `http://YOUR_SERVER_IP:8090`
 2. Go to "Peers"
 3. Click "+ Add Peer"
 4. Enter player name

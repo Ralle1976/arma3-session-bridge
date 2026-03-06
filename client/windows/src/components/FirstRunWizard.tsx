@@ -3,7 +3,7 @@
 /// Shown when no valid WireGuard .conf is found on startup.
 ///
 /// Steps:
-///   1. Enter Bridge API URL (default: https://arma3.ralle1976.cloud/api)
+///   1. Enter Bridge API URL (default: http://YOUR_SERVER_IP:8001)
 ///   2. Enter Peer Name / ID
 ///   3. Download .conf via GET /peers/{id}/config — validates Split-Tunnel before accepting
 
@@ -23,7 +23,7 @@ type Step = 1 | 2 | 3
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const DEFAULT_API_URL = 'https://arma3.ralle1976.cloud/api'
+const DEFAULT_API_URL = 'http://YOUR_SERVER_IP:8001'
 
 export function FirstRunWizard({ confPath, onComplete }: Props) {
   const [step, setStep] = useState<Step>(1)
@@ -110,11 +110,11 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               type="url"
               value={apiUrl}
               onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="https://arma3.ralle1976.cloud/api"
+              placeholder="http://YOUR_SERVER_IP:8001"
               autoFocus
             />
             <p className="wizard-hint">
-              Default: <code>https://arma3.ralle1976.cloud/api</code>
+              Default: <code>http://YOUR_SERVER_IP:8001</code>
             </p>
             <div className="wizard-actions">
               <button

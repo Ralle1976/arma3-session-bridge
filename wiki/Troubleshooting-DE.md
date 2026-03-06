@@ -5,7 +5,7 @@
 Bevor du spezifische Probleme untersuchst, diese Checkliste abarbeiten:
 
 - [ ] Ist das Tray-Symbol **grün**? (VPN verbunden)
-- [ ] Ist die API erreichbar? `curl http://212.227.54.229:8001/health`
+- [ ] Ist die API erreichbar? `curl http://YOUR_SERVER_IP:8001/health`
 - [ ] Wurde die App als **Administrator** gestartet?
 - [ ] Ist die `.conf` Datei gültig? (Setup-Assistent prüft das)
 - [ ] Ist Port `51820/udp` für ausgehende Verbindungen erlaubt?
@@ -22,7 +22,7 @@ Bevor du spezifische Probleme untersuchst, diese Checkliste abarbeiten:
 |---------|--------|
 | Keine Admin-Rechte | Rechtsklick → "Als Administrator ausführen" |
 | Ungültige `.conf` Datei | Neu installieren und gültige `.conf` Datei wählen |
-| Server nicht erreichbar | `ping 212.227.54.229` — bei Fehler VPS-Status prüfen |
+| Server nicht erreichbar | `ping YOUR_SERVER_IP` — bei Fehler VPS-Status prüfen |
 | UDP 51820 blockiert | Mobilen Hotspot versuchen; Netzwerkadmin kontaktieren |
 | WireGuard Treiberfehler | Windows neu starten; App neu installieren |
 | Antivirus-Einschränkung | App-Ausnahme in Antivirus-Einstellungen hinzufügen |
@@ -30,10 +30,10 @@ Bevor du spezifische Probleme untersuchst, diese Checkliste abarbeiten:
 **Diagnose-Befehle:**
 ```cmd
 # Server-Erreichbarkeit testen (Command Prompt)
-ping 212.227.54.229
+ping YOUR_SERVER_IP
 
 # API-Health prüfen
-curl http://212.227.54.229:8001/health
+curl http://YOUR_SERVER_IP:8001/health
 
 # WireGuard-Dienst prüfen
 sc query type= all | findstr WireGuard
@@ -77,7 +77,7 @@ ping 10.8.0.1
 
 **Falls keine Antwort:**
 1. WireGuard-Config prüfen — `AllowedIPs` muss `10.8.0.0/24` enthalten
-2. Endpoint-IP prüfen: `212.227.54.229:51820`
+2. Endpoint-IP prüfen: `YOUR_SERVER_IP:51820`
 3. Server-Logs prüfen: `docker logs arma3-wireguard --tail 50`
 
 ---
@@ -91,7 +91,7 @@ ping 10.8.0.1
 2. „Session hosten" in der App geklickt?
 3. „Aktualisieren" in der Session-Liste klicken
 4. 30 Sekunden warten (automatische Aktualisierung)
-5. API prüfen: `curl http://212.227.54.229:8001/sessions`
+5. API prüfen: `curl http://YOUR_SERVER_IP:8001/sessions`
 
 **Falls API leere Liste zurückgibt obwohl du hostest:**
 - Heartbeat könnte fehlgeschlagen sein
@@ -147,7 +147,7 @@ ping 10.8.0.1
 **Erwartet:** VPN fügt 10–30 ms hinzu. Alle Spieler teilen die gleiche VPN-Server-Latenz.
 
 **Bei ungewöhnlich hohem Ping (>100 ms):**
-1. Server-Last prüfen: `http://212.227.54.229:8090` → Dashboard → Stats
+1. Server-Last prüfen: `http://YOUR_SERVER_IP:8090` → Dashboard → Stats
 2. Upload-Bandbreite prüfen (WireGuard Spiel-Traffic nutzt Upload beim Host)
 3. `ping 10.8.0.1` ausführen — bei >50 ms ist Internet oder VPS der Engpass
 
