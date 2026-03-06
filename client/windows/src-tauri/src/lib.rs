@@ -36,6 +36,9 @@ pub struct AppState {
     /// ID of the currently hosted session, `None` if not hosting.
     /// Used by the background heartbeat task.
     pub active_session_id: Arc<AsyncMutex<Option<String>>>,
+    /// Path to the active WireGuard .conf file, `None` if disconnected.
+    /// Used by the background auto-reconnect task.
+    pub active_conf_path: Arc<AsyncMutex<Option<String>>>,
 }
 
 // ─── Session Struct ────────────────────────────────────────────────────────────
@@ -59,13 +62,18 @@ pub struct Session {
 ///
 /// Invoked from frontend: `invoke('connect_vpn', { confPath: '...' })`
 #[tauri::command]
-fn connect_vpn(
+async fn connect_vpn(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     conf_path: String,
 ) -> Result<String, String> {
     vpn::connect_vpn(&conf_path)?;
     let ip = vpn::get_tunnel_ip().unwrap_or_else(|_| "connected".to_string());
+    // Save conf_path for auto-reconnect
+    {
+        let mut lock = state.active_conf_path.lock().await;
+        *lock = Some(conf_path.clone());
+    }
     // Update tray tooltip to show assigned tunnel IP
     if let Some(tray) = app.tray_by_id(state.tray_id.as_str()) {
         let _ = tray.set_tooltip(Some(
@@ -81,7 +89,6 @@ fn connect_vpn(
 ///
 /// Invoked from frontend: `invoke('disconnect_vpn', { tunnelName: '...' })`
 #[tauri::command]
-async fn disconnect_vpn(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
     tunnel_name: String,
@@ -90,6 +97,11 @@ async fn disconnect_vpn(
     // Clear session ID so heartbeat loop stops sending
     {
         let mut lock = state.active_session_id.lock().await;
+        *lock = None;
+    }
+    // Clear conf path so reconnect loop stops
+    {
+        let mut lock = state.active_conf_path.lock().await;
         *lock = None;
     }
     // Reset tray tooltip
@@ -357,13 +369,17 @@ pub fn run() {
                 Arc::new(AsyncMutex::new(None));
             let heartbeat_arc = Arc::clone(&session_arc);
 
+            // ── Conf path Arc (shared with reconnect task) ─────────────────────
+            let conf_path_arc: Arc<AsyncMutex<Option<String>>> =
+                Arc::new(AsyncMutex::new(None));
+            let reconnect_arc = Arc::clone(&conf_path_arc);
+
             // ── Spawn auto-heartbeat task ──────────────────────────────────────
             // Sends PUT /sessions/{id}/heartbeat every 60 s while session is active.
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(
                     std::time::Duration::from_secs(60),
                 );
-                // Skip the immediate first tick so heartbeat starts after 60 s
                 interval.tick().await;
                 loop {
                     interval.tick().await;
@@ -374,6 +390,42 @@ pub fn run() {
                     if let Some(sid) = sid_opt {
                         let url = format!("{}/sessions/{}/heartbeat", API_BASE_URL, sid);
                         let _ = reqwest::Client::new().put(&url).send().await;
+                    }
+                }
+            });
+
+            // ── Spawn auto-reconnect task ──────────────────────────────────────
+            // Every 30 s: if conf_path is set but tunnel not running → reconnect.
+            let reconnect_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut interval = tokio::time::interval(
+                    std::time::Duration::from_secs(30),
+                );
+                interval.tick().await; // skip first tick
+                loop {
+                    interval.tick().await;
+                    let conf_opt = {
+                        let lock = reconnect_arc.lock().await;
+                        lock.clone()
+                    };
+                    if let Some(ref conf_path) = conf_opt {
+                        let tunnel_name = std::path::Path::new(conf_path)
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("arma3-session-bridge")
+                            .to_string();
+                        if !vpn::is_tunnel_running(&tunnel_name) {
+                            match vpn::connect_vpn(conf_path) {
+                                Ok(()) => {
+                                    let ip = vpn::get_tunnel_ip()
+                                        .unwrap_or_else(|_| "reconnected".to_string());
+                                    let _ = reconnect_app.emit("vpn-reconnected", ip);
+                                }
+                                Err(e) => {
+                                    let _ = reconnect_app.emit("vpn-reconnect-failed", e);
+                                }
+                            }
+                        }
                     }
                 }
             });
@@ -433,6 +485,7 @@ pub fn run() {
             app.manage(AppState {
                 tray_id,
                 active_session_id: session_arc,
+                active_conf_path: conf_path_arc,
             });
 
             Ok(())

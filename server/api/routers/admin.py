@@ -144,17 +144,95 @@ def _get_wg_stats() -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
+# WireGuard per-peer stats
+# ---------------------------------------------------------------------------
+
+
+def _parse_wg_dump(output: str) -> list[dict]:
+    """Parse `wg show wg0 dump` tab-separated output into per-peer dicts.
+
+    Dump format (tab-separated):
+      Interface line: private_key  public_key  listen_port  fwmark
+      Peer lines:     public_key  preshared_key  endpoint  allowed_ips
+                      last_handshake  rx_bytes  tx_bytes  persistent_keepalive
+    """
+    peers = []
+    lines = output.strip().splitlines()
+    if not lines:
+        return peers
+    # Skip interface line (first line)
+    for line in lines[1:]:
+        parts = line.split("\t")
+        if len(parts) < 8:
+            continue
+        pub_key = parts[0]
+        endpoint = parts[2] if parts[2] != "(none)" else None
+        allowed_ips = parts[3]
+        last_handshake_ts = int(parts[4]) if parts[4].isdigit() else 0
+        rx_bytes = int(parts[5]) if parts[5].isdigit() else 0
+        tx_bytes = int(parts[6]) if parts[6].isdigit() else 0
+        keepalive = int(parts[7]) if parts[7].isdigit() else 0
+
+        import time as _time
+        now = int(_time.time())
+        last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
+
+        if last_handshake_ago is None or last_handshake_ago > 600:
+            quality = "offline"
+        elif last_handshake_ago > 180:
+            quality = "warning"
+        else:
+            quality = "good"
+
+        peers.append({
+            "public_key": pub_key,
+            "endpoint": endpoint,
+            "allowed_ips": allowed_ips,
+            "last_handshake_ago": last_handshake_ago,
+            "transfer_rx_bytes": rx_bytes,
+            "transfer_tx_bytes": tx_bytes,
+            "persistent_keepalive": keepalive,
+            "connection_quality": quality,
+        })
+    return peers
+
+
+def _get_wg_peer_stats() -> list[dict]:
+    """Get per-peer WireGuard stats via `wg show wg0 dump`. Returns [] if unavailable."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", WG_CONTAINER, "wg", "show", "wg0", "dump"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return []
+        return _parse_wg_dump(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
 
 
-class AdminStats(BaseModel):
-    connected_peers: int
-    active_sessions: int
-    server_uptime: float  # seconds since app start
-    wg_rx_bytes: int
-    wg_tx_bytes: int
+class PeerStat(BaseModel):
+    public_key: str
+    endpoint: str | None
+    allowed_ips: str
+    last_handshake_ago: int | None  # seconds since last handshake, None if never
+    transfer_rx_bytes: int
+    transfer_tx_bytes: int
+    persistent_keepalive: int
+    connection_quality: str  # 'good' | 'warning' | 'offline'
 
+
+class WgStats(BaseModel):
+    peers: list[PeerStat]
+    optimizations: dict  # MTU, keepalive, server_tuning flags
+
+
+class AdminStats(BaseModel):
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -190,6 +268,30 @@ async def admin_stats(_admin: str = Depends(_require_admin)) -> AdminStats:
         wg_tx_bytes=tx,
     )
 
+
+@router.get(
+    "/wg-stats",
+    response_model=WgStats,
+    summary="Per-peer WireGuard stats with connection quality (AdminBearer required)",
+)
+async def admin_wg_stats(_admin: str = Depends(_require_admin)) -> WgStats:
+    """Return real-time WireGuard peer stats parsed from `wg show wg0 dump`.
+
+    Connection quality thresholds:
+      good    = last handshake < 180s (PersistentKeepalive=25s keeps it alive)
+      warning = 180s – 600s (peer briefly offline)
+      offline = > 600s or never connected
+    """
+    raw_peers = _get_wg_peer_stats()
+    peers = [PeerStat(**p) for p in raw_peers]
+    return WgStats(
+        peers=peers,
+        optimizations={
+            "mtu": 1420,
+            "keepalive_seconds": 25,
+            "server_tuning": False,  # sysctl tuning not yet applied
+        },
+    )
 
 @router.get(
     "/events",

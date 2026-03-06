@@ -4,6 +4,8 @@ import apiClient from '../api/client'
 import StatsCards from '../components/StatsCards'
 import TrafficChart from '../components/TrafficChart'
 import EventLog from '../components/EventLog'
+import OptimizationBadges from '../components/OptimizationBadges'
+import WgStatsCards from '../components/WgStatsCards'
 import type { AdminStats } from '../components/StatsCards'
 
 interface HealthStatus {
@@ -101,11 +103,19 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <StatsCards stats={stats} uptimeFallback={health?.uptime} />
 
+      {/* Optimization Badges */}
+      <OptimizationBadges mtu={1420} keepalive={25} serverTuning={false} />
+
+      {/* Live Peer Status */}
+      <WgStatsCards />
+
       {/* Traffic Chart + Event Log side-by-side on wide screens */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <TrafficChart />
         <EventLog />
       </div>
     </div>
+  )
+}
   )
 }
