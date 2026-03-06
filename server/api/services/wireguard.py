@@ -81,10 +81,11 @@ def _build_wg_conf(peers: list[dict]) -> str:
 
 
 def sync_wireguard(peers: list[dict]) -> None:
-    """Write wg0.conf and apply it via docker exec wg syncconf.
+    def sync_wireguard(peers: list[dict]) -> None:
+    """Write peer config and apply via docker exec wg syncconf.
 
     Uses `wg syncconf` (no downtime!) instead of restarting the container.
-    The config is written to a temp file, copied into the container, then applied.
+    IMPORTANT: wg syncconf only accepts [Peer] sections — NO [Interface] section!
 
     Args:
         peers: List of active (non-revoked) peer dicts.
@@ -92,55 +93,47 @@ def sync_wireguard(peers: list[dict]) -> None:
     Raises:
         RuntimeError: if docker exec fails.
     """
-    conf_content = _build_wg_conf(peers)
+    # wg syncconf only accepts [Peer] sections — do NOT include [Interface]!
+    lines: list[str] = []
+    for peer in peers:
+        lines += [
+            "[Peer]",
+            f"PublicKey = {peer['public_key']}",
+            f"AllowedIPs = {peer['tunnel_ip']}/32",
+            "",
+        ]
+    conf_content = "\n".join(lines)
 
-    # Write config to a temp file that will be synced
     with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".conf", prefix="wg0_", delete=False
+        mode="w", suffix=".conf", prefix="wg0sync_", delete=False
     ) as tmp:
         tmp.write(conf_content)
         tmp_path = tmp.name
 
     try:
-        # Copy config file into the container at /tmp/wg0.conf
         cp_result = subprocess.run(
-            ["docker", "cp", tmp_path, f"{WG_CONTAINER}:/tmp/wg0.conf"],
-            capture_output=True,
-            text=True,
-            timeout=15,
+            ["docker", "cp", tmp_path, f"{WG_CONTAINER}:/tmp/wg0sync.conf"],
+            capture_output=True, text=True, timeout=15,
         )
         if cp_result.returncode != 0:
             raise RuntimeError(
                 f"docker cp failed (rc={cp_result.returncode}): {cp_result.stderr}"
             )
 
-        # Apply config without restarting (no downtime!)
         sync_result = subprocess.run(
-            [
-                "docker",
-                "exec",
-                WG_CONTAINER,
-                "wg",
-                "syncconf",
-                "wg0",
-                "/tmp/wg0.conf",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
+            ["docker", "exec", WG_CONTAINER, "wg", "syncconf", "wg0", "/tmp/wg0sync.conf"],
+            capture_output=True, text=True, timeout=15,
         )
         if sync_result.returncode != 0:
             raise RuntimeError(
                 f"wg syncconf failed (rc={sync_result.returncode}): {sync_result.stderr}"
             )
     finally:
-        import os as _os
-
         try:
+            import os as _os
             _os.unlink(tmp_path)
         except OSError:
             pass
-
 
 def get_peer_status() -> dict[str, dict]:
     """Parse `docker exec wg show wg0` output into a dict keyed by public key.
