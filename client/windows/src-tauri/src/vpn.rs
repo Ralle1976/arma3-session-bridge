@@ -91,20 +91,35 @@ pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
 /// Checks for the WireGuard executable at its default Windows install path.
 /// Returns `Ok(())` if found, or an `Err` with an install URL if not.
 pub fn install_wireguard_if_missing() -> Result<(), String> {
-    // Check both x64 and x86 install paths
-    let paths = [
-        r"C:\Program Files\WireGuard\wireguard.exe",
-        r"C:\Program Files (x86)\WireGuard\wireguard.exe",
-    ];
-    if paths.iter().any(|p| Path::new(p).exists()) {
+    if wireguard_is_present() {
         return Ok(());
     }
 
-    // WireGuard not found — installer should have handled this (hooks.nsh).
-    // If we still end up here, it means the app was installed without NSIS
-    // or the auto-install failed. Return a clear error.
+    // Not found — attempt silent auto-install (same as NSIS hook, but as in-app fallback)
+    let ps = r#"
+$url = 'https://download.wireguard.com/windows-client/wireguard-installer.exe'
+$out = Join-Path $env:TEMP 'wireguard-installer.exe'
+Invoke-WebRequest -Uri $url -OutFile $out -UseBasicParsing
+Start-Process -FilePath $out -ArgumentList '/S' -Wait
+"#;
+
+    let tmp = std::env::temp_dir().join("install-wg.ps1");
+    std::fs::write(&tmp, ps)
+        .map_err(|e| format!("Failed to write WireGuard install script: {e}"))?;
+
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+               tmp.to_str().unwrap_or("")])
+        .status();
+
+    let _ = std::fs::remove_file(&tmp);
+
+    if wireguard_is_present() {
+        return Ok(());
+    }
+
     Err(
-        "WireGuard nicht gefunden. Bitte App neu installieren — der Installer laedt WireGuard automatisch."
+        "WireGuard konnte nicht installiert werden. Bitte manuell von https://www.wireguard.com/install/ installieren und die App neu starten."
             .to_string(),
     )
 }
@@ -241,10 +256,33 @@ pub fn dump_log() -> Result<String, String> {
 ///
 /// Falls back to just `"wireguard.exe"` (PATH lookup) if the default install
 /// location does not exist (e.g. during testing on Linux CI).
-fn wireguard_exe_path() -> &'static str {
-    // Checked at compile time — always valid Rust syntax on all platforms.
-    // At runtime on Windows this path exists after a standard WireGuard install.
-    r"C:\Program Files\WireGuard\wireguard.exe"
+fn wireguard_is_present() -> bool {
+    let candidates = [
+        r"C:\Program Files\WireGuard\wireguard.exe",
+        r"C:\Program Files (x86)\WireGuard\wireguard.exe",
+    ];
+    if candidates.iter().any(|p| Path::new(p).exists()) {
+        return true;
+    }
+    // Also check PATH via where.exe
+    Command::new("where.exe")
+        .arg("wireguard.exe")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn wireguard_exe_path() -> String {
+    let candidates = [
+        r"C:\Program Files\WireGuard\wireguard.exe",
+        r"C:\Program Files (x86)\WireGuard\wireguard.exe",
+    ];
+    for c in &candidates {
+        if Path::new(c).exists() {
+            return c.to_string();
+        }
+    }
+    "wireguard.exe".to_string() // PATH fallback
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
