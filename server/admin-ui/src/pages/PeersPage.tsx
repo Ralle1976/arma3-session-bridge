@@ -33,6 +33,7 @@ export default function PeersPage() {
   const { data: peers, isLoading, isError } = useQuery<Peer[]>({
     queryKey: ['peers'],
     queryFn: listPeers,
+    refetchInterval: 30_000,
   })
 
   const deleteMutation = useMutation({

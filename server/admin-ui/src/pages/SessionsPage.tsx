@@ -1,18 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
-import apiClient from '../api/client'
+import { useEffect, useRef } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { listSessions, type Session } from '../api/sessions'
 
-interface Session {
-  id: string
-  peer_name: string
-  peer_id: string
-  arma_player?: string
-  started_at: string
-  ended_at?: string
-  duration_seconds?: number
-  active: boolean
-}
-
-function formatDuration(seconds?: number) {
+function formatDuration(seconds?: number | null) {
   if (!seconds) return '—'
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -23,32 +13,63 @@ function formatDuration(seconds?: number) {
 }
 
 export default function SessionsPage() {
+  const queryClient = useQueryClient()
+
   const { data: sessions, isLoading, isError } = useQuery<Session[]>({
     queryKey: ['sessions'],
-    queryFn: async () => {
-      const res = await apiClient.get<Session[]>('/sessions')
-      return res.data
-    },
-    refetchInterval: 10_000,
+    queryFn: listSessions,
+    refetchInterval: 30_000,
   })
+
+  // SSE: subscribe to /api/admin/events for live updates
+  const sseRef = useRef<EventSource | null>(null)
+
+  useEffect(() => {
+    const BASE = import.meta.env.VITE_API_URL ?? '/api'
+    const token = localStorage.getItem('admin_token') ?? ''
+    const url = `${BASE}/admin/events?token=${encodeURIComponent(token)}`
+
+    const es = new EventSource(url, { withCredentials: true })
+    sseRef.current = es
+
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] })
+    }
+
+    es.addEventListener('session_started', refresh)
+    es.addEventListener('session_ended', refresh)
+    es.addEventListener('session_updated', refresh)
+    es.onmessage = refresh
+    es.onerror = () => { /* silent — polling covers us */ }
+
+    return () => {
+      es.close()
+      sseRef.current = null
+    }
+  }, [queryClient])
 
   const activeSessions = sessions?.filter((s) => s.active) ?? []
   const historySessions = sessions?.filter((s) => !s.active) ?? []
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-100">Sessions</h1>
           <p className="text-gray-500 text-sm mt-1">
-            Active & historical VPN sessions
+            Active &amp; historical VPN sessions
             {sessions && (
               <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-900/40 text-green-400 border border-green-800/50">
                 {activeSessions.length} active
               </span>
             )}
           </p>
+        </div>
+        {/* SSE live indicator */}
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          Live
         </div>
       </div>
 
@@ -86,6 +107,12 @@ export default function SessionsPage() {
                         {session.arma_player && (
                           <p className="text-xs text-gray-500">Player: {session.arma_player}</p>
                         )}
+                        {session.mission && (
+                          <p className="text-xs text-gray-600">
+                            {session.mission}
+                            {session.map_name ? ` — ${session.map_name}` : ''}
+                          </p>
+                        )}
                       </div>
                     </div>
                     <div className="text-right">
@@ -107,8 +134,8 @@ export default function SessionsPage() {
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
               Session History
             </h2>
-            <div className="card p-0 overflow-hidden">
-              <table className="w-full">
+            <div className="card p-0 overflow-hidden overflow-x-auto">
+              <table className="w-full min-w-[600px]">
                 <thead>
                   <tr className="border-b border-gray-800 bg-gray-800/40">
                     <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Peer</th>
