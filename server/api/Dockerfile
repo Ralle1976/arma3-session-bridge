@@ -1,8 +1,15 @@
 FROM python:3.11-slim
 
-# Non-root user for security
-RUN groupadd -g 1001 arma3 && \
-    useradd -u 1001 -g arma3 -s /bin/bash -m arma3
+# Install Docker CLI (needed for wg syncconf via docker exec)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl gnupg ca-certificates && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    chmod a+r /etc/apt/keyrings/docker.asc && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -14,9 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Data directory for SQLite DB
-RUN mkdir -p /app/data && chown -R arma3:arma3 /app
-
-USER arma3
+RUN mkdir -p /app/data
 
 EXPOSE 8000
 
