@@ -25,7 +25,7 @@ use vpn::VpnStatus;
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 /// Bridge API base URL (hardcoded MVP — configurable via Tauri config in future).
-const API_BASE_URL: &str = "https://your-server.example.com/api";
+const API_BASE_URL: &str = "http://YOUR_SERVER_IP:8001";
 
 // ─── Shared Application State ─────────────────────────────────────────────────
 

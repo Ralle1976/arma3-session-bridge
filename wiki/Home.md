@@ -26,7 +26,7 @@ Welcome to the **Arma 3 Session Bridge** wiki. Private Arma 3 multiplayer via Wi
 
 ```
 Windows Player A ─── WireGuard ──┐
-Windows Player B ─── WireGuard ──┼── IONOS Server (YOUR_SERVER_IP)
+Windows Player B ─── WireGuard ──┼── VPS (YOUR_SERVER_IP)
 Windows Player C ─── WireGuard ──┘    ├── WireGuard VPN  (UDP 51820)
                                         ├── FastAPI API   (Port 8001)
                                         └── React Admin  (Port 8090)
@@ -40,7 +40,7 @@ Windows Player C ─── WireGuard ──┘    ├── WireGuard VPN  (UDP 
 | API | FastAPI (Python 3.11), SQLite |
 | Admin UI | React + TailwindCSS, nginx |
 | Client | Tauri v2 (Rust + React), NSIS Installer |
-| Server | IONOS VPS, AlmaLinux 9.7, Docker |
+| Server | your VPS, AlmaLinux 9.7, Docker |
 
 ## Getting Started
 

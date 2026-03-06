@@ -133,7 +133,7 @@ The client app automatically **rejects** full-tunnel configurations (security ch
 Internet
   │
   ▼
-YOUR_SERVER_IP (IONOS VPS — AlmaLinux 9.7)
+YOUR_SERVER_IP (your VPS — AlmaLinux 9.7)
   │
   ├── :51820/udp  ──── arma3-wireguard ────────┐
   ├── :8001/tcp   ──── arma3-api (FastAPI)     │
@@ -151,7 +151,7 @@ VPN: 10.8.0.0/24                               │
 The Windows client uses a hardcoded API URL in `src-tauri/src/lib.rs`:
 
 ```rust
-const API_BASE_URL: &str = "https://your-server.example.com/api";
+const API_BASE_URL: &str = "https://your-domain.example.com/api";
 ```
 
 To use a custom server, rebuild the Tauri app with your API URL substituted.

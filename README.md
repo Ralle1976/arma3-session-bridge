@@ -7,9 +7,9 @@
 
 ## Overview
 
-Arma 3 Session Bridge solves the classic problem of hosting private Arma 3 sessions: **players behind NAT/CGNAT can host games** without opening router ports. All traffic is tunnelled through a WireGuard VPN on a cheap IONOS VPS.
+Arma 3 Session Bridge solves the classic problem of hosting private Arma 3 sessions: **players behind NAT/CGNAT can host games** without opening router ports. All traffic is tunnelled through a WireGuard VPN on a cheap your VPS.
 
-- **Server**: IONOS VPS (AlmaLinux 9.7, public IP `YOUR_SERVER_IP`)
+- **Server**: your VPS (AlmaLinux 9.7, public IP `YOUR_SERVER_IP`)
 - **VPN**: WireGuard split-tunnel `10.8.0.0/24`, UDP port `51820`
 - **API**: FastAPI REST, port `8001`, SQLite database
 - **Admin UI**: React + TailwindCSS dashboard, port `8090`
@@ -19,7 +19,7 @@ Arma 3 Session Bridge solves the classic problem of hosting private Arma 3 sessi
 
 ```
 Windows Player A ─── WireGuard ──┐
-Windows Player B ─── WireGuard ──┼── IONOS Server (YOUR_SERVER_IP)
+Windows Player B ─── WireGuard ──┼── VPS (YOUR_SERVER_IP)
 Windows Player C ─── WireGuard ──┘    ├── WireGuard VPN     (UDP 51820)
                                         ├── FastAPI REST API  (Port 8001)
                                         └── React Admin UI    (Port 8090)
@@ -68,7 +68,7 @@ curl http://YOUR_SERVER_IP:8001/health
 |----------|-------------|---------|
 | `ADMIN_PASSWORD` | Admin dashboard password | *(required)* |
 | `JWT_SECRET` | JWT signing secret (min. 32 chars) | *(required)* |
-| `WG_SERVER_IP` | Public IP of your IONOS server | `YOUR_SERVER_IP` |
+| `WG_SERVER_IP` | Public IP of your your server | `YOUR_SERVER_IP` |
 | `WG_PORT` | WireGuard UDP port | `51820` |
 | `API_PORT` | External port for REST API | `8001` |
 | `ADMIN_UI_PORT` | External port for Admin UI | `8090` |
@@ -132,7 +132,7 @@ arma3-session-bridge/
 └── .github/
     └── workflows/
         ├── build-windows.yml  # Build NSIS installer
-        └── deploy.yml         # SSH deploy to IONOS VPS
+        └── deploy.yml         # SSH deploy to your VPS
 ```
 
 ## Joining an Arma 3 Session
