@@ -120,9 +120,11 @@ app.add_middleware(
 # Include routers
 # ---------------------------------------------------------------------------
 
+from routers.peers import router as peers_router
 from routers.sessions import router as sessions_router
 from routers.admin import router as admin_router
 
+app.include_router(peers_router)
 app.include_router(sessions_router)
 app.include_router(admin_router)
 
@@ -166,31 +168,4 @@ async def login(body: LoginRequest) -> TokenResponse:
     return TokenResponse(access_token=token)
 
 
-# ---------------------------------------------------------------------------
-# Peers (stub — full implementation in T2)
-# ---------------------------------------------------------------------------
-
-
-@app.post("/peers", tags=["peers"], status_code=501)
-async def create_peer():
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.get("/peers", tags=["peers"], status_code=501)
-async def list_peers():
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.get("/peers/{peer_id}", tags=["peers"], status_code=501)
-async def get_peer(peer_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.delete("/peers/{peer_id}", tags=["peers"], status_code=501)
-async def revoke_peer(peer_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
-
-
-@app.get("/peers/{peer_id}/config", tags=["peers"], status_code=501)
-async def get_peer_config(peer_id: int):
-    raise HTTPException(status_code=501, detail="Not implemented yet")
+# Peers router is included above via app.include_router(peers_router)
