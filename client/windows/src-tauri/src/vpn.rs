@@ -91,16 +91,22 @@ pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
 /// Checks for the WireGuard executable at its default Windows install path.
 /// Returns `Ok(())` if found, or an `Err` with an install URL if not.
 pub fn install_wireguard_if_missing() -> Result<(), String> {
-    let wireguard_exe = Path::new(r"C:\Program Files\WireGuard\wireguard.exe");
-    if wireguard_exe.exists() {
-        Ok(())
-    } else {
-        Err(
-            "WireGuard is not installed. Please install it from \
-             https://www.wireguard.com/install/ and restart the application."
-                .to_string(),
-        )
+    // Check both x64 and x86 install paths
+    let paths = [
+        r"C:\Program Files\WireGuard\wireguard.exe",
+        r"C:\Program Files (x86)\WireGuard\wireguard.exe",
+    ];
+    if paths.iter().any(|p| Path::new(p).exists()) {
+        return Ok(());
     }
+
+    // WireGuard not found — installer should have handled this (hooks.nsh).
+    // If we still end up here, it means the app was installed without NSIS
+    // or the auto-install failed. Return a clear error.
+    Err(
+        "WireGuard nicht gefunden. Bitte App neu installieren — der Installer laedt WireGuard automatisch."
+            .to_string(),
+    )
 }
 
 /// Read the current WireGuard tunnel IP from the active network interface.
