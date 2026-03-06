@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Manager, State,
+    Emitter, Manager, State,
 };
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -70,7 +70,6 @@ fn connect_vpn(
     if let Some(tray) = app.tray_by_id(state.tray_id.as_str()) {
         let _ = tray.set_tooltip(Some(
             format!("Connected: {}", ip).as_str(),
-            format!("Arma 3 Session Bridge — Connected ({})", ip).as_str(),
         ));
     }
     Ok(format!("VPN connected — Tunnel IP: {}", ip))
@@ -105,7 +104,6 @@ async fn disconnect_vpn(
 /// Invoked from frontend: `invoke('check_vpn_status', { tunnelName: '...' })`
 ///
 /// Returns [`VpnStatus`] with `connected`, `tunnel_ip`, `tunnel_name`.
-#[tauri::command]
 #[tauri::command]
 fn check_vpn_status(
     app: tauri::AppHandle,
