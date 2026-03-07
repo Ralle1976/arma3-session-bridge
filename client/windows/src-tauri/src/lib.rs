@@ -378,13 +378,13 @@ async fn download_peer_config(
 ///   4. Write .conf to save_path
 ///
 /// Invoked from frontend:
-///   `invoke('generate_and_register_peer', { apiUrl, peerName, savePath, token })`
+///   `invoke('generate_and_register_peer', { apiUrl, peerName, savePath, registrationCode })`
 #[tauri::command]
 async fn generate_and_register_peer(
     api_url: String,
     peer_name: String,
     save_path: String,
-    token: String,
+    registration_code: String,
 ) -> Result<(), String> {
     use base64::{engine::general_purpose::STANDARD, Engine};
     use rand::rngs::OsRng;
@@ -401,7 +401,7 @@ async fn generate_and_register_peer(
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", token))
+        .header("X-Registration-Code", &registration_code)
         .json(&serde_json::json!({
             "name": peer_name,
             "public_key": public_key_b64,
