@@ -126,11 +126,13 @@ from routers.peers import router as peers_router
 from routers.sessions import router as sessions_router
 from routers.admin import router as admin_router
 from routers.settings import router as settings_router
+from routers.vpn_mode import router as vpn_mode_router
 
 app.include_router(peers_router)
 app.include_router(sessions_router)
 app.include_router(admin_router)
 app.include_router(settings_router)
+app.include_router(vpn_mode_router)
 
 
 # ---------------------------------------------------------------------------
