@@ -173,18 +173,50 @@ pub fn install_tunnel_service(conf_path: &str) -> Result<(), String> {
         return Err("conf_path must not be empty".to_string());
     }
 
-    let status = Command::new(wireguard_exe_path())
+    // Pre-flight: verify conf file exists, is non-empty, and has no placeholder
+    match std::fs::read_to_string(conf_path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(format!(
+                "Config-Datei nicht gefunden: {conf_path}. Bitte die App neu einrichten."
+            ));
+        }
+        Err(e) => return Err(format!("Config-Datei konnte nicht gelesen werden: {e}")),
+        Ok(content) => {
+            if content.trim().is_empty() {
+                return Err(format!(
+                    "Config-Datei ist leer: {conf_path}. Bitte die App neu einrichten."
+                ));
+            }
+            if content.contains("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>") {
+                return Err(
+                    "Config-Datei enthält noch den PrivateKey-Platzhalter. Bitte die App neu einrichten."
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    let output = Command::new(wireguard_exe_path())
         .args(["/installtunnelservice", conf_path])
-        .status()
+        .output()
         .map_err(|e| format!("Failed to run wireguard.exe: {e}"))?;
 
-    if status.success() {
+    if output.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "wireguard.exe /installtunnelservice exited with: {:?}",
-            status.code()
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let mut parts = vec![format!(
+            "WireGuard Tunnel-Installation fehlgeschlagen (Exit-Code: {:?}).",
+            output.status.code()
+        )];
+        if !stderr.is_empty() {
+            parts.push(format!("Fehler: {stderr}"));
+        }
+        if !stdout.is_empty() {
+            parts.push(format!("Ausgabe: {stdout}"));
+        }
+        Err(parts.join("\n"))
     }
 }
 
