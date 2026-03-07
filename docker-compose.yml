@@ -33,6 +33,8 @@ services:
       - WG_SERVER_IP=${WG_SERVER_IP:-10.8.0.1}
       - WG_PORT=${WG_PORT:-51820}
       - WG_SERVER_PUBLIC_KEY=${WG_SERVER_PUBLIC_KEY}
+      - PEER_REGISTRATION_CODE=${PEER_REGISTRATION_CODE}
+      - SERVER_PUBLIC_URL=${SERVER_PUBLIC_URL}
     volumes:
       - ./server/api:/app
       - ./wireguard/config:/wg-config:ro
