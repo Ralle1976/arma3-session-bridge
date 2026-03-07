@@ -1,13 +1,12 @@
-/// FirstRunWizard.tsx — First-Run Setup Wizard for Arma 3 Session Bridge
+/// FirstRunWizard.tsx — 3-Step Setup Wizard for Arma 3 Session Bridge
 ///
-/// Shown when no valid WireGuard .conf is found on startup.
-///
-/// Steps:
-///   1. Bridge API URL + Registrierungs-Code (vom Admin, nicht das Admin-PW!)
-///   2. Enter Peer Name → App generates WireGuard keypair locally & registers
+/// Step 1: Server URL + Registration Code
+/// Step 2: Device name (with chip suggestions)
+/// Step 3: Success screen
 
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useTranslation } from '../i18n/LanguageContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -18,21 +17,22 @@ interface Props {
   onComplete: () => void
 }
 
-type Step = 1 | 2
+type Step = 1 | 2 | 3
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const DEFAULT_API_URL = 'https://arma3-session-bridge.ralle1976.cloud/api'
 
 export function FirstRunWizard({ confPath, onComplete }: Props) {
+  const { lang, t, toggleLang } = useTranslation()
   const [step, setStep] = useState<Step>(1)
   const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL)
   const [registrationCode, setRegistrationCode] = useState('')
-  const [peerId, setPeerId] = useState('')
+  const [deviceName, setDeviceName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Registrieren: Keypair generieren + Server-Registrierung + Conf schreiben ──
+  // ── Register: generate keypair + server registration + write conf ──
 
   const handleRegister = async () => {
     setLoading(true)
@@ -40,22 +40,19 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
     try {
       const base = apiUrl.trim().replace(/\/$/, '')
 
-      // Keypair lokal generieren + beim Server registrieren + conf schreiben.
-      // Kein fetch() — alles über Tauri-Command (kein CSP-Problem).
       await invoke('generate_and_register_peer', {
         apiUrl: base,
-        peerName: peerId.trim(),
+        peerName: deviceName.trim(),
         savePath: confPath,
         registrationCode: registrationCode.trim(),
       })
 
-      // Step C: Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24
       const valid = await invoke<boolean>('validate_conf', { path: confPath })
       if (!valid) {
         setError('Generierte Config ist ungültig. Admin kontaktieren.')
         return
       }
-      onComplete()
+      setStep(3)
     } catch (e) {
       setError(String(e))
     } finally {
@@ -63,117 +60,196 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
     }
   }
 
+  // ── Progress dots ──────────────────────────────────────────────────
+
+  const dotClass = (n: number) => {
+    if (step > n) return 'wizard-step-dot done'
+    if (step === n) return 'wizard-step-dot active'
+    return 'wizard-step-dot'
+  }
+
+  const lineClass = (afterStep: number) =>
+    step > afterStep ? 'wizard-step-line done' : 'wizard-step-line'
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <div className="wizard-overlay">
-      <div className="wizard-card">
-        {/* Title */}
-        <div className="wizard-header">
-          <h2>🚀 Ersteinrichtung</h2>
-          <p className="wizard-subtitle">
-            Keine VPN-Konfiguration gefunden. Lass uns deine Verbindung einrichten.
-          </p>
-        </div>
-
-        {/* Step indicators — 2 steps */}
-        <div className="wizard-steps">
-          <div className={`wizard-step-dot ${step >= 1 ? 'done' : ''} ${step === 1 ? 'current' : ''}`}>
-            <span>1</span>
-            <label>URL &amp; Code</label>
-          </div>
-          <div className="wizard-step-line" />
-          <div className={`wizard-step-dot ${step >= 2 ? 'done' : ''} ${step === 2 ? 'current' : ''}`}>
-            <span>2</span>
-            <label>Registrieren</label>
+      {/* Header */}
+      <div className="wizard-header">
+        <div className="wizard-brand">
+          <div className="wizard-logo">🎮</div>
+          <div>
+            <div className="wizard-brand-name">{t.wizardTitle}</div>
+            <div className="wizard-brand-sub">{t.wizardSubtitle}</div>
           </div>
         </div>
+        <button className="lang-toggle" onClick={toggleLang}>
+          {lang === 'de' ? 'EN' : 'DE'}
+        </button>
+      </div>
 
-        {/* Error */}
-        {error && <div className="wizard-error">⚠ {error}</div>}
+      {/* Progress */}
+      <div className="wizard-progress">
+        <div className={dotClass(1)}>1</div>
+        <div className={lineClass(1)} />
+        <div className={dotClass(2)}>2</div>
+        <div className={lineClass(2)} />
+        <div className={dotClass(3)}>3</div>
+      </div>
 
-        {/* ── Step 1: API URL + Registrierungs-Code ─────────────────────────── */}
+      {/* Body */}
+      <div className="wizard-body">
+
+        {/* ── Step 1: URL + Registration Code ─── */}
         {step === 1 && (
-          <div className="wizard-panel">
-            <label className="wizard-label" htmlFor="wizard-api-url">
-              Bridge API URL
-            </label>
-            <input
-              id="wizard-api-url"
-              className="wizard-input"
-              type="url"
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="https://arma3-session-bridge.ralle1976.cloud/api"
-              autoFocus
-            />
-            <label className="wizard-label" htmlFor="wizard-reg-code" style={{ marginTop: '12px' }}>
-              Registrierungs-Code
-            </label>
-            <input
-              id="wizard-reg-code"
-              className="wizard-input"
-              type="password"
-              value={registrationCode}
-              onChange={(e) => setRegistrationCode(e.target.value)}
-              placeholder="Code vom Admin"
-            />
-            <p className="wizard-hint">
-              Den Code bekommst du vom Admin (z.B. per Discord).
-              Das ist <strong>nicht</strong> das Admin-Passwort — nur zum Registrieren.
-            </p>
-            <div className="wizard-actions">
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setError(null)
-                  setStep(2)
-                }}
-                disabled={!apiUrl.trim() || !registrationCode.trim()}
-              >
-                Weiter →
-              </button>
+          <>
+            <div className="wizard-step-title">{t.wizardStep1Title}</div>
+            <div className="wizard-step-desc">{t.wizardStep1Desc}</div>
+
+            <div className="wizard-info-box">
+              <span className="info-icon">ℹ️</span>
+              <span>{t.infoStep1}</span>
             </div>
-          </div>
+
+            <div className="wizard-field">
+              <div className="wizard-label">
+                {t.labelServerUrl}
+                <span
+                  className="tooltip-icon"
+                  data-tip={t.tooltipServerUrl}
+                >?</span>
+              </div>
+              <input
+                className="wizard-input"
+                type="url"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder={t.placeholderServerUrl}
+                autoFocus
+              />
+            </div>
+
+            <div className="wizard-field">
+              <div className="wizard-label">
+                {t.labelRegCode}
+                <span
+                  className="tooltip-icon"
+                  data-tip={t.tooltipRegCode}
+                >?</span>
+              </div>
+              <input
+                className="wizard-input"
+                type="password"
+                value={registrationCode}
+                onChange={(e) => setRegistrationCode(e.target.value)}
+                placeholder={t.placeholderRegCode}
+              />
+            </div>
+
+            {error && <div className="wizard-error">⚠ {error}</div>}
+          </>
         )}
 
-        {/* ── Step 2: Peer Name + Register ───────────────────────────────── */}
+        {/* ── Step 2: Device Name ─── */}
         {step === 2 && (
-          <div className="wizard-panel">
-            <label className="wizard-label" htmlFor="wizard-peer-id">
-              Dein Peer-Name
-            </label>
-            <input
-              id="wizard-peer-id"
-              className="wizard-input"
-              type="text"
-              value={peerId}
-              onChange={(e) => setPeerId(e.target.value)}
-              placeholder="z.B. ralle-arma3"
-              autoFocus
-            />
-            <p className="wizard-hint">
-              Der Name muss eindeutig sein (z.B. <code>ralle-arma3</code>). Die App generiert
-              deinen VPN-Schlüssel automatisch.
-            </p>
-            <div className="wizard-actions">
-              <button
-                className="btn"
-                onClick={() => { setError(null); setStep(1) }}
-                disabled={loading}
-              >
-                ← Zurück
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleRegister}
-                disabled={!peerId.trim() || loading}
-              >
-                {loading ? '⏳ Registriere...' : '✅ Registrieren & Verbinden'}
-              </button>
+          <>
+            <div className="wizard-step-title">{t.wizardStep2Title}</div>
+            <div className="wizard-step-desc">{t.wizardStep2Desc}</div>
+
+            <div className="wizard-info-box">
+              <span className="info-icon">💡</span>
+              <span>{t.infoStep2}</span>
             </div>
+
+            <div className="wizard-field">
+              <div className="wizard-label">
+                {t.labelDeviceName}
+                <span
+                  className="tooltip-icon"
+                  data-tip={t.tooltipDeviceName}
+                >?</span>
+              </div>
+              <input
+                className="wizard-input"
+                type="text"
+                value={deviceName}
+                onChange={(e) => setDeviceName(e.target.value)}
+                placeholder={t.placeholderDeviceName}
+                autoFocus
+              />
+              <div className="chips">
+                {[t.chipNameSuggestion1, t.chipNameSuggestion2, t.chipNameSuggestion3].map((chip) => (
+                  <button
+                    key={chip}
+                    className="chip"
+                    type="button"
+                    onClick={() => setDeviceName(chip)}
+                  >
+                    {chip}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {error && <div className="wizard-error">⚠ {error}</div>}
+          </>
+        )}
+
+        {/* ── Step 3: Success ─── */}
+        {step === 3 && (
+          <div className="wizard-success">
+            <div className="success-icon">✓</div>
+            <div className="success-title">{t.wizardStep3Title}</div>
+            <div className="success-desc">{t.wizardStep3Desc}</div>
           </div>
         )}
+      </div>
+
+      {/* Footer */}
+      <div className="wizard-footer">
+        {/* Back button */}
+        <div>
+          {step === 2 && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setError(null); setStep(1) }}
+              disabled={loading}
+            >
+              {t.btnBack}
+            </button>
+          )}
+        </div>
+
+        {/* Next / Register / Start */}
+        <div>
+          {step === 1 && (
+            <button
+              className="btn btn-primary"
+              onClick={() => { setError(null); setStep(2) }}
+              disabled={!apiUrl.trim() || !registrationCode.trim()}
+            >
+              {t.btnNext}
+            </button>
+          )}
+          {step === 2 && (
+            <button
+              className="btn btn-primary"
+              onClick={handleRegister}
+              disabled={!deviceName.trim() || loading}
+            >
+              {loading ? '⏳ ...' : t.btnRegister}
+            </button>
+          )}
+          {step === 3 && (
+            <button
+              className="btn btn-primary"
+              onClick={onComplete}
+            >
+              {t.btnStartPlaying}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

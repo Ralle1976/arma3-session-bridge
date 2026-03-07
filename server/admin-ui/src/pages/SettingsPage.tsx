@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getSettings, updateSettings } from '../api/settings';
 
 export default function SettingsPage() {
