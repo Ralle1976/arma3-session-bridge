@@ -21,7 +21,7 @@ type Step = 1 | 2 | 3
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-const DEFAULT_API_URL = 'https://your-server.example.com/api'
+const DEFAULT_API_URL = 'https://your-server.example.com'
 
 export function FirstRunWizard({ confPath, onComplete }: Props) {
   const { lang, t, toggleLang } = useTranslation()
