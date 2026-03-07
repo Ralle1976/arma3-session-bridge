@@ -113,6 +113,6 @@ export const translations = {
     btnStopSession: 'Stop Session',
     sessionActive: 'Session active',
   }
-} as const;
+};
 
 export type Translations = typeof translations['de'];
