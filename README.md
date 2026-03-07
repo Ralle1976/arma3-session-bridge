@@ -1,210 +1,233 @@
 # Arma 3 Session Bridge
 
-> Private Arma 3 multiplayer via WireGuard VPN — no port-forwarding required.
+> Privates Arma 3 Multiplayer über WireGuard VPN — kein Port-Forwarding nötig.
 
-[![Build Windows Client](https://github.com/YourGitHubUser/arma3-session-bridge/actions/workflows/build-windows.yml/badge.svg)](https://github.com/YourGitHubUser/arma3-session-bridge/actions/workflows/build-windows.yml)
-[![Deploy Server](https://github.com/YourGitHubUser/arma3-session-bridge/actions/workflows/deploy.yml/badge.svg)](https://github.com/YourGitHubUser/arma3-session-bridge/actions/workflows/deploy.yml)
+[![Build Windows Client](https://github.com/Ralle1976/arma3-session-bridge/actions/workflows/build-windows.yml/badge.svg)](https://github.com/Ralle1976/arma3-session-bridge/actions/workflows/build-windows.yml)
+[![Deploy Server](https://github.com/Ralle1976/arma3-session-bridge/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ralle1976/arma3-session-bridge/actions/workflows/deploy.yml)
 
-## Overview
+---
 
-Arma 3 Session Bridge solves the classic problem of hosting private Arma 3 sessions: **players behind NAT/CGNAT can host games** without opening router ports. All traffic is tunnelled through a WireGuard VPN on a cheap your VPS.
+## Was ist das?
 
-- **Server**: your VPS (AlmaLinux 9.7, public IP `YOUR_SERVER_IP`)
-- **VPN**: WireGuard split-tunnel `10.8.0.0/24`, UDP port `51820`
-- **API**: FastAPI REST, port `8001`, SQLite database
-- **Admin UI**: React + TailwindCSS dashboard, port `8090`
-- **Windows Client**: Tauri v2 app, NSIS installer (`arma3-session-bridge-setup.exe`)
+Arma 3 Session Bridge löst das klassische Problem beim privaten Arma 3 Hosting: **Spieler hinter NAT/CGNAT können Spiele hosten**, ohne Router-Ports zu öffnen.
 
-## Architecture
+### Wie funktioniert es?
+
+Alle Spieler verbinden sich mit einem WireGuard VPN auf einem günstigen VPS. Dadurch befinden sich alle im **selben virtuellen LAN** (`10.8.0.0/24`) — als wären sie im selben Heimnetzwerk, egal wo sie sich befinden.
 
 ```
-Windows Player A ─── WireGuard ──┐
-Windows Player B ─── WireGuard ──┼── VPS (YOUR_SERVER_IP)
-Windows Player C ─── WireGuard ──┘    ├── WireGuard VPN     (UDP 51820)
-                                        ├── FastAPI REST API  (Port 8001)
-                                        └── React Admin UI    (Port 8090)
+Spieler A (Windows) ─── WireGuard ──┐
+Spieler B (Windows) ─── WireGuard ──┼── VPS (Hub)
+Spieler C (Windows) ─── WireGuard ──┘    ├── WireGuard VPN  (UDP 51820)
+                                           ├── FastAPI REST   (Port 8001)
+                                           └── React Admin UI (Port 8090)
 ```
 
-### Split-Tunnel Routing
+**Hub & Spoke Topologie:** Der VPS ist der zentrale Knotenpunkt. Alle Spieler verbinden sich mit dem VPS, nicht direkt miteinander. Der Traffic läuft verschlüsselt durch den Tunnel.
 
-Only Arma 3 VPN traffic (`10.8.0.0/24`) is routed through the tunnel. Regular internet traffic flows directly to avoid unnecessary latency.
+---
 
-```
-Player → Arma3 connect 10.8.0.2:2302
-        ↓ WireGuard tunnel (encrypted)
-Server → WireGuard decrypts → forwards to Host Player's 10.8.0.2
-```
+## 🎮 Arma 3: So funktioniert's
 
-## Quick Start
+1. **Alle Spieler** verbinden sich zuerst mit der Session Bridge App (VPN)
+2. **Gastgeber** startet Arma 3 → Mehrspieler → LAN → Spiel erstellen
+3. **Mitspieler:** Mehrspieler → LAN → Spiel erscheint automatisch in der Liste
+   - ODER: Direktverbindung über die VPN-IP des Gastgebers (z.B. `10.8.0.2:2302`)
 
-### Server Deployment
+Kein öffentlicher Gameserver, kein Port-Forwarding, keine DynDNS nötig.
+
+---
+
+## 📥 Download (Windows Client)
+
+**[→ Neuesten Installer herunterladen](https://github.com/Ralle1976/arma3-session-bridge/releases/latest)**
+
+- Als **Administrator** ausführen (für WireGuard-Dienst-Installation erforderlich)
+- Einrichtungs-Wizard ausfüllen: Server-URL + Registrierungs-Code (vom Admin erhalten)
+- VPN verbinden → Arma 3 starten → LAN → spielen 🚀
+
+---
+
+## 🖥️ Self-Hosting (Server aufsetzen)
+
+### Voraussetzungen
+
+- Linux VPS mit öffentlicher IP (Ubuntu 22.04+ oder AlmaLinux 9+)
+- Docker + Docker Compose
+- Offene Ports: `51820/udp` (WireGuard), `8001/tcp` (API), `8090/tcp` (Admin UI)
+
+### Schnellstart
 
 ```bash
-# Clone repository
-git clone https://github.com/YourGitHubUser/arma3-session-bridge
+# Repository klonen
+git clone https://github.com/Ralle1976/arma3-session-bridge
 cd arma3-session-bridge
 
-# Configure environment
+# Umgebungsvariablen konfigurieren
 cp .env.example .env
-# Edit .env: fill in ADMIN_PASSWORD, JWT_SECRET, WG_SERVER_IP
+# .env bearbeiten (siehe unten)
 
-# Start all services
+# Alle Services starten
 docker compose up -d
 
-# Verify health
-curl http://YOUR_SERVER_IP:8001/health
+# Health-Check
+curl http://DEINE-SERVER-IP:8001/health
 ```
 
-### Windows Client Installation
+### .env Konfiguration
 
-1. Download the latest release: **[arma3-session-bridge-setup.exe](https://github.com/YourGitHubUser/arma3-session-bridge/releases/latest)**
-2. Run **AS ADMINISTRATOR** (required for WireGuard service installation)
-3. Follow the **Setup Wizard** (enter API URL + your peer config file)
-4. Connect VPN via system tray icon
+```env
+# Admin-Passwort für das Dashboard
+ADMIN_PASSWORD=dein-sicheres-passwort
 
-## Configuration (`.env`)
+# JWT-Signing-Secret (min. 32 Zeichen)
+JWT_SECRET=dein-jwt-secret-mindestens-32-zeichen-lang
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ADMIN_PASSWORD` | Admin dashboard password | *(required)* |
-| `JWT_SECRET` | JWT signing secret (min. 32 chars) | *(required)* |
-| `WG_SERVER_IP` | Public IP of your your server | `YOUR_SERVER_IP` |
-| `WG_PORT` | WireGuard UDP port | `51820` |
-| `API_PORT` | External port for REST API | `8001` |
-| `ADMIN_UI_PORT` | External port for Admin UI | `8090` |
+# Öffentliche IP deines Servers
+WG_SERVER_IP=DEINE-SERVER-IP
 
-### Generate a secure JWT secret
+# WireGuard UDP-Port (Standard: 51820)
+WG_PORT=51820
+
+# Registrierungs-Code für neue Spieler
+PEER_REGISTRATION_CODE=dein-registrierungscode
+
+# Öffentliche URL des Servers (für Einladungslinks)
+SERVER_PUBLIC_URL=https://deine-domain.example.com
+
+# Externe Ports (optional, Standard wie angegeben)
+API_PORT=8001
+ADMIN_UI_PORT=8090
+```
+
+### Sicheres JWT-Secret generieren
 
 ```bash
 openssl rand -base64 48
 ```
 
-## API Endpoints
+### Admin Dashboard
 
-| Method | Endpoint | Auth | Description |
-|--------|----------|------|-------------|
-| `GET` | `/health` | Public | Liveness probe |
-| `POST` | `/auth/login` | Public | Admin login → JWT |
-| `POST` | `/peers` | Admin JWT | Create WireGuard peer |
-| `GET` | `/peers` | Admin JWT | List all peers |
-| `GET` | `/peers/{id}` | Admin JWT | Get peer details |
-| `DELETE` | `/peers/{id}` | Admin JWT | Revoke peer |
-| `GET` | `/peers/{id}/config` | Admin JWT | Download `.conf` file |
-| `POST` | `/sessions` | Peer JWT | Open Arma 3 session |
-| `GET` | `/sessions` | Public | List active sessions |
-| `DELETE` | `/sessions/{id}` | Peer JWT | Close session |
-| `PUT` | `/sessions/{id}/heartbeat` | Peer JWT | Keep session alive |
-| `GET` | `/admin/stats` | Admin JWT | System statistics |
-| `GET` | `/admin/events` | Admin JWT | SSE live event stream |
-
-Full OpenAPI spec: [openapi.yaml](openapi.yaml)
-
-## Docker Services
-
-| Service | Container | Image | Port |
-|---------|-----------|-------|------|
-| WireGuard VPN | `arma3-wireguard` | `linuxserver/wireguard:latest` | `51820/udp` |
-| REST API | `arma3-api` | Built from `./server/api` | `8001→8000` |
-| Admin UI | `arma3-admin-ui` | `nginx:alpine` | `8090→80` |
-
-## Repository Structure
-
-```
-arma3-session-bridge/
-├── .env.example            # Environment variable template
-├── docker-compose.yml      # Server stack definition
-├── openapi.yaml            # REST API specification
-├── docs/                   # User documentation
-│   ├── user-manual-de.md   # Deutsches Benutzerhandbuch
-│   └── user-manual-en.md   # English User Manual
-├── server/
-│   ├── api/                # FastAPI backend (Python)
-│   │   ├── main.py         # Application entry point
-│   │   ├── models.py       # Pydantic data models
-│   │   ├── routers/        # API route handlers
-│   │   └── services/       # Business logic (WireGuard, cleanup, events)
-│   ├── admin-ui/           # React + TailwindCSS dashboard
-│   └── wireguard/          # WireGuard entrypoint scripts
-├── client/
-│   └── windows/            # Tauri v2 Windows client
-│       ├── src/            # React frontend
-│       └── src-tauri/      # Rust backend (VPN, API calls, tray)
-└── .github/
-    └── workflows/
-        ├── build-windows.yml  # Build NSIS installer
-        └── deploy.yml         # SSH deploy to your VPS
-```
-
-## Joining an Arma 3 Session
-
-1. Open the **Arma 3 Session Bridge** client
-2. Click **Connect VPN** (or use tray icon)
-3. The **Session List** updates automatically every 30 seconds
-4. Click **Join** on any active session
-5. Note the **Host Tunnel IP** (e.g. `10.8.0.2`)
-6. In Arma 3: **Multiplayer → Direct Connect** → enter `10.8.0.2:2302`
-
-## Hosting an Arma 3 Session
-
-1. Connect to VPN first (required)
-2. Click **Host Session**
-3. Enter mission name and max player count
-4. Your tunnel IP is automatically registered (e.g. `10.8.0.2`)
-5. Other players see your session in the list within 30 seconds
-6. The client sends heartbeats every 60 seconds to keep the session alive
-7. Click **Stop Hosting** or disconnect VPN to close the session
-
-## System Requirements
-
-### Server
-- Linux VPS with public IP (AlmaLinux 9.7 / Ubuntu 22.04+)
-- Docker + Docker Compose
-- Ports open: `51820/udp`, `8001/tcp`, `8090/tcp`
-
-### Windows Client
-- Windows 10/11 (64-bit)
-- **Administrator rights** (required for WireGuard kernel module)
-- Arma 3 installed via Steam
-
-## Admin Dashboard
-
-Access at `http://YOUR_SERVER_IP:8090`
+Erreichbar unter: `http://DEINE-SERVER-IP:8090` oder `https://deine-domain.example.com`
 
 Features:
-- Live peer list (online/offline status)
-- Active session overview
-- Traffic statistics charts
-- Peer management (create, revoke)
-- CSV export for all data
-- Real-time event log (SSE stream)
-
-## Troubleshooting
-
-### VPN connects but Arma 3 can't find the host
-- Ensure the host player's tunnel IP is correctly registered (check Session List)
-- Verify Arma 3 firewall rule: `2302/udp` must be allowed in Windows Firewall
-- Use `ping 10.8.0.x` (from Command Prompt) to test tunnel connectivity
-
-### `Access denied` when starting the client
-- The installer **must** be run as Administrator
-- If already installed, right-click the shortcut → "Run as administrator"
-
-### Session disappears from list
-- The host client's heartbeat may have stopped — check that the client is running
-- Sessions auto-expire after 5 minutes without a heartbeat
-
-## Contributing
-
-Pull requests are welcome. Please:
-1. Open an issue first for major changes
-2. Follow existing code style (Rust: `cargo fmt`, Python: `black .`, TS: `eslint`)
-3. Add tests for new functionality
-4. Update documentation accordingly
-
-## License
-
-See [client/windows/LICENSE.txt](client/windows/LICENSE.txt)
+- Peer-Verwaltung (erstellen, widerrufen)
+- Einladungstext mit VPN-Erklärung generieren und kopieren
+- VPN-Modus umschalten (Arma 3 restricted / Offen)
+- Live-Statistiken und Event-Log
 
 ---
 
-*Documentation: [Wiki](https://github.com/YourGitHubUser/arma3-session-bridge/wiki) | [User Manual DE](docs/user-manual-de.md) | [User Manual EN](docs/user-manual-en.md)*
+## 🔧 Komponenten
+
+| Komponente | Technologie | Beschreibung |
+|------------|-------------|--------------|
+| WireGuard VPN | `linuxserver/wireguard` | Hub & Spoke VPN, UDP 51820 |
+| REST API | FastAPI (Python) | Peer-Verwaltung, Session-Tracking, Admin-Endpoints |
+| Admin UI | React + Vite | Dashboard für Peer-Verwaltung und Einladungen |
+| Windows Client | Tauri v2 (Rust + React) | NSIS-Installer, VPN-Verbindung, Session-Browser |
+
+---
+
+## 📋 API Endpoints
+
+| Method | Endpoint | Auth | Beschreibung |
+|--------|----------|------|--------------|
+| `GET` | `/health` | Public | Liveness-Probe |
+| `POST` | `/auth/login` | Public | Admin-Login → JWT |
+| `POST` | `/peers` | Admin JWT | WireGuard-Peer erstellen |
+| `GET` | `/peers` | Admin JWT | Alle Peers auflisten |
+| `DELETE` | `/peers/{id}` | Admin JWT | Peer widerrufen |
+| `GET` | `/peers/{id}/config` | Admin JWT | `.conf`-Datei herunterladen |
+| `POST` | `/sessions` | Peer JWT | Arma 3 Session öffnen |
+| `GET` | `/sessions` | Public | Aktive Sessions auflisten |
+| `DELETE` | `/sessions/{id}` | Peer JWT | Session schließen |
+| `GET` | `/admin/stats` | Admin JWT | System-Statistiken |
+| `GET` | `/admin/vpn-mode` | Admin JWT | VPN-Modus abfragen |
+| `PUT` | `/admin/vpn-mode` | Admin JWT | VPN-Modus umschalten |
+
+---
+
+## 💻 Systemanforderungen
+
+### Server
+- Linux VPS mit öffentlicher IP (Ubuntu 22.04+ / AlmaLinux 9+)
+- Docker + Docker Compose
+- Ports offen: `51820/udp`, `8001/tcp`, `8090/tcp`
+
+### Windows Client
+- Windows 10/11 (64-bit)
+- **Administrator-Rechte** (für WireGuard-Kernel-Modul erforderlich)
+- Arma 3 via Steam installiert
+
+---
+
+## 🔥 VPN-Modus
+
+Der Admin kann zwischen zwei Modi umschalten:
+
+| Modus | Traffic | Empfohlen für |
+|-------|---------|---------------|
+| **Arma 3** (Standard) | Nur UDP 2302–2305 + BattlEye (2344–2345) | Arma 3 Spielsessions |
+| **Offen** | Alle Ports zwischen Peers | Andere Nutzung (z.B. andere Spiele) |
+
+---
+
+## 🛠️ Troubleshooting
+
+### VPN verbindet, aber Arma 3 findet den Host nicht
+- Sicherstellen, dass alle Spieler mit dem VPN verbunden sind
+- Host-Spieler: Arma 3 → Mehrspieler → **LAN** (nicht Internet!)
+- Windows-Firewall prüfen: Port `2302/udp` muss erlaubt sein
+- Ping-Test: `ping 10.8.0.x` (VPN-IP des Hosts) aus der Eingabeaufforderung
+
+### `Access denied` beim Starten des Clients
+- Installer **muss als Administrator** ausgeführt werden
+- Falls bereits installiert: Rechtsklick auf Verknüpfung → "Als Administrator ausführen"
+
+### Session verschwindet aus der Liste
+- Der Heartbeat des Host-Clients hat aufgehört — Client muss laufen
+- Sessions laufen nach 5 Minuten ohne Heartbeat automatisch ab
+
+### Registrierungs-Code wird nicht akzeptiert
+- Code beim Admin erfragen (sichtbar im Admin Dashboard)
+- Groß-/Kleinschreibung beachten
+- Leerzeichen am Anfang/Ende entfernen
+
+---
+
+## 📁 Repository-Struktur
+
+```
+arma3-session-bridge/
+├── .env.example                # Vorlage für Umgebungsvariablen
+├── docker-compose.yml          # Server-Stack-Definition
+├── server/
+│   ├── api/                    # FastAPI Backend (Python)
+│   │   ├── main.py             # Anwendungs-Einstiegspunkt
+│   │   ├── routers/            # API-Route-Handler
+│   │   └── services/           # Business-Logik
+│   ├── admin-ui/               # React Dashboard
+│   └── wireguard/              # WireGuard-Skripte
+├── client/
+│   └── windows/                # Tauri v2 Windows-Client
+│       ├── src/                # React Frontend
+│       └── src-tauri/          # Rust Backend (VPN, API, Tray)
+└── .github/
+    └── workflows/
+        ├── build-windows.yml   # NSIS-Installer bauen
+        └── deploy.yml          # SSH-Deploy auf VPS
+```
+
+---
+
+## 🤝 Contributing
+
+Pull Requests sind willkommen. Bitte:
+1. Zuerst ein Issue für größere Änderungen öffnen
+2. Bestehenden Code-Stil einhalten (Python: `black .`, TS: `eslint`)
+3. Tests für neue Funktionalität hinzufügen
+
+## 📄 Lizenz
+
+Siehe [client/windows/LICENSE.txt](client/windows/LICENSE.txt)
