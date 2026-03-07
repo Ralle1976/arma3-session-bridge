@@ -377,10 +377,10 @@ async fn check_peer_exists(conf_path: String) -> Result<bool, String> {
         None => return Ok(false),
     };
 
-    // Safe fallback: if no API URL configured yet, assume peer exists
+    // No config.json → no API URL → peer cannot exist → force setup wizard
     let api_url = match load_api_url() {
         Ok(url) => url,
-        Err(_) => return Ok(true),
+        Err(_) => return Ok(false), // No config.json → force re-setup wizard
     };
 
     let url = format!("{}/peers/{}/config", api_url.trim_end_matches('/'), peer_name);

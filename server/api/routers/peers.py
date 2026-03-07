@@ -331,14 +331,39 @@ async def register_peer(
        private key before saving (done by the Tauri generate_and_register_peer command).
     """
     async with get_connection() as conn:
-        # 1. Name uniqueness check
+        # 1. Name uniqueness check — allow re-registration (update public key)
         cursor = await conn.execute(
-            "SELECT id, revoked FROM peers WHERE name = ?", (body.name,)
+            "SELECT id, tunnel_ip, revoked FROM peers WHERE name = ?", (body.name,)
         )
-        if await cursor.fetchone():
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Peer with name \'{body.name}\' already exists",
+        existing = await cursor.fetchone()
+        if existing:
+            # Re-registration: update public key, revive if revoked, re-sync WireGuard
+            peer_id = existing["id"]
+            tunnel_ip = existing["tunnel_ip"]
+            now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            await conn.execute(
+                "UPDATE peers SET public_key = ?, revoked = 0, revoked_at = NULL WHERE id = ?",
+                (body.public_key, peer_id),
+            )
+            await conn.commit()
+            active_peers = await _get_active_peers(conn)
+            try:
+                sync_wireguard(active_peers)
+            except RuntimeError as exc:
+                logger.warning("wg syncconf failed after re-registration: %s", exc)
+            logger.info(
+                "Peer re-registered: name=%s ip=%s pubkey=%s",
+                body.name, tunnel_ip, body.public_key[:12] + "...",
+            )
+            config = build_client_config(
+                private_key="<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>",
+                tunnel_ip=tunnel_ip,
+                allowed_ips="10.8.0.0/24",
+            )
+            return PlainTextResponse(
+                content=config,
+                media_type="text/plain",
+                status_code=status.HTTP_200_OK,
             )
 
         # 2. Assign tunnel IP
