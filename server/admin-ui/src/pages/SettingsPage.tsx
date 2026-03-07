@@ -44,17 +44,37 @@ export default function SettingsPage() {
 
   function buildInviteText() {
     return `🎮 Arma 3 Session Bridge — Einladung
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📡 WIE ES FUNKTIONIERT
+Wenn du die App verbindest, bekommst du eine virtuelle
+IP-Adresse (z.B. 10.8.0.x). Alle verbundenen Spieler
+befinden sich dann im gleichen virtuellen LAN — als wärt
+ihr im selben Heimnetzwerk, egal wo ihr gerade seid.
+Kein Port-Forwarding, kein öffentlicher Gameserver nötig.
+
+🎯 ARMA 3: SO FUNKTIONIERT'S
+→ Alle verbinden sich zuerst mit der Session Bridge App
+→ Gastgeber startet Arma 3 → Mehrspieler → LAN → Spiel erstellen
+→ Mitspieler: Mehrspieler → LAN → Spiel erscheint automatisch
+   ODER: Direktverbindung über die IP des Gastgebers (10.8.0.x)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️ EINRICHTUNG (einmalig, ~2 Minuten)
 
 1️⃣  Installer herunterladen:
      ${RELEASE_URL}
 
-2️⃣  App starten → den Einrichtungs-Wizard ausfüllen:
+2️⃣  App starten → Einrichtungs-Wizard ausfüllen:
      • Server-URL:            ${serverUrl}
      • Registrierungs-Code:  ${code}
 
 3️⃣  Gerätename eingeben (z.B. deinen Gamer-Tag)
 
-4️⃣  Fertig! VPN verbinden → Sessions beitreten 🚀
+4️⃣  Fertig! VPN verbinden → Arma 3 starten → LAN → spielen 🚀
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Bei Problemen einfach melden.`;
   }
