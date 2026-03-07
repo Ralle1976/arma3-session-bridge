@@ -399,6 +399,11 @@ async def register_peer(
             (body.name, body.public_key, tunnel_ip, "10.8.0.0/24", now),
         )
         peer_id = cursor.lastrowid
+        if peer_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to persist peer id",
+            )
         await conn.commit()
 
         # 4. Sync WireGuard

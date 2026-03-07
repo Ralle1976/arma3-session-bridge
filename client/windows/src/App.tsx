@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getVersion } from '@tauri-apps/api/app'
 import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
 import { FirstRunWizard } from './components/FirstRunWizard'
@@ -29,6 +30,7 @@ function App() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState<ActiveTab>('sessions')
+  const [appVersion, setAppVersion] = useState<string>('...')
   // null = checking, false = missing/invalid, true = valid
   const [configValid, setConfigValid] = useState<boolean | null>(null)
 
@@ -91,6 +93,12 @@ function App() {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   useEffect(() => {
+    getVersion()
+      .then((v) => setAppVersion(v))
+      .catch(() => setAppVersion('unknown'))
+  }, [])
+
+  useEffect(() => {
     // Step 1: validate local .conf syntax
     invoke<boolean>('validate_conf', { path: WG_CONF_PATH })
       .then(async (valid) => {
@@ -107,7 +115,13 @@ function App() {
             await invoke('delete_conf_file', { path: WG_CONF_PATH })
             setConfigValid(false)
           } else {
-            setConfigValid(true)
+            // Existing peer must also have local peer token for authenticated session APIs
+            const hasToken = await invoke<boolean>('has_peer_token')
+            if (!hasToken) {
+              setConfigValid(false)
+            } else {
+              setConfigValid(true)
+            }
           }
         } catch {
           // If peer check fails unexpectedly, proceed as valid to avoid false re-registration
@@ -180,6 +194,7 @@ function App() {
           <div className="titlebar-logo">🎮</div>
           <div>
             <div className="titlebar-title">{t.appTitle}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>v{appVersion}</div>
           </div>
         </div>
         <div className="titlebar-right">

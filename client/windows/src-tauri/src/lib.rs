@@ -102,10 +102,17 @@ fn load_peer_token() -> Result<String, String> {
         .map_err(|e| format!("Failed to read app config: {e}"))?;
     let json: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse app config: {e}"))?;
-    json["peer_token"]
+    let token = json["peer_token"]
         .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "peer_token not found in config.json".to_string())
+        .ok_or_else(|| "peer_token not found in config.json".to_string())?
+        .trim()
+        .to_string();
+
+    if token.is_empty() {
+        return Err("peer_token is empty in config.json".to_string());
+    }
+
+    Ok(token)
 }
 
 // ─── VPN Commands ─────────────────────────────────────────────────────────────
@@ -314,7 +321,8 @@ async fn send_heartbeat(session_id: String) -> Result<(), String> {
     let base = load_api_url()?;
     let url = format!("{}/sessions/{}/heartbeat", base, session_id);
 
-    let token = load_peer_token().unwrap_or_default();
+    let token = load_peer_token()
+        .map_err(|e| format!("No peer token — please re-run setup wizard: {e}"))?;
 
     let client = reqwest::Client::new();
     let response = client
@@ -343,6 +351,11 @@ async fn send_heartbeat(session_id: String) -> Result<(), String> {
 /// Returns `Ok(false)` when the file does not exist (first-run).
 ///
 /// Invoked from frontend: `invoke('validate_conf', { path: '...' })`
+#[tauri::command]
+fn has_peer_token() -> bool {
+    load_peer_token().is_ok()
+}
+
 #[tauri::command]
 fn validate_conf(path: String) -> Result<bool, String> {
     let content = match std::fs::read_to_string(&path) {
@@ -624,12 +637,13 @@ pub fn run() {
                         // Load API URL dynamically — it may not exist on very first run
                         if let Ok(base_url) = load_api_url() {
                             let url = format!("{}/sessions/{}/heartbeat", base_url, sid);
-                            let token = load_peer_token().unwrap_or_default();
-                            let _ = reqwest::Client::new()
-                                .put(&url)
-                                .header("Authorization", format!("Bearer {}", token))
-                                .send()
-                                .await;
+                            if let Ok(token) = load_peer_token() {
+                                let _ = reqwest::Client::new()
+                                    .put(&url)
+                                    .header("Authorization", format!("Bearer {}", token))
+                                    .send()
+                                    .await;
+                            }
                         }
                     }
                 }
@@ -739,6 +753,7 @@ pub fn run() {
             host_session,
             join_session,
             send_heartbeat,
+            has_peer_token,
             validate_conf,
             check_peer_exists,
             delete_conf_file,
