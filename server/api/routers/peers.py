@@ -34,6 +34,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/peers", tags=["peers"])
 
+
+def _issue_peer_token(peer_id: int) -> str:
+    """Issue a JWT for peer authentication (sessions, heartbeats)."""
+    import os as _os
+    from datetime import timedelta as _timedelta
+    from jose import jwt as _jwt
+
+    payload = {
+        "sub": f"peer:{peer_id}",
+        "role": "peer",
+        "peer_id": peer_id,
+        "iat": datetime.now(tz=timezone.utc),
+        "exp": datetime.now(tz=timezone.utc) + _timedelta(days=365),
+    }
+    secret = _os.getenv("JWT_SECRET", "")
+    return _jwt.encode(payload, secret, algorithm="HS256")
+
 # ── Tunnel IP pool ─────────────────────────────────────────────────────────────
 # Server is 10.8.0.1; peers get .2 through .20 (max 19 peers)
 _TUNNEL_BASE = "10.8.0."
@@ -360,10 +377,13 @@ async def register_peer(
                 tunnel_ip=tunnel_ip,
                 allowed_ips="10.8.0.0/24",
             )
+            # Issue peer JWT for session auth
+            peer_token = _issue_peer_token(peer_id)
             return PlainTextResponse(
                 content=config,
                 media_type="text/plain",
                 status_code=status.HTTP_200_OK,
+                headers={"X-Peer-Token": peer_token},
             )
 
         # 2. Assign tunnel IP
@@ -371,13 +391,14 @@ async def register_peer(
 
         # 3. Insert peer — public_key comes from the client
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        await conn.execute(
+        cursor = await conn.execute(
             """
             INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
             VALUES (?, ?, ?, ?, ?, 0)
             """,
             (body.name, body.public_key, tunnel_ip, "10.8.0.0/24", now),
         )
+        peer_id = cursor.lastrowid
         await conn.commit()
 
         # 4. Sync WireGuard
@@ -401,10 +422,14 @@ async def register_peer(
             allowed_ips="10.8.0.0/24",
         )
 
+        # Issue peer JWT for session auth
+        peer_token = _issue_peer_token(peer_id)
+
     return PlainTextResponse(
         content=config,
         media_type="text/plain",
         status_code=status.HTTP_201_CREATED,
+        headers={"X-Peer-Token": peer_token},
     )
 
 

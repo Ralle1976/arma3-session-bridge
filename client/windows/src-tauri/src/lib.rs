@@ -83,6 +83,31 @@ fn save_api_url(api_url: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to write app config: {e}"))
 }
 
+/// Save the API URL and peer token together in the config file.
+fn save_config(api_url: &str, peer_token: &str) -> Result<(), String> {
+    let config_dir = r"C:\ProgramData\arma3-session-bridge";
+    std::fs::create_dir_all(config_dir)
+        .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    let json = serde_json::json!({
+        "api_url": api_url,
+        "peer_token": peer_token,
+    });
+    std::fs::write(APP_CONFIG_PATH, json.to_string())
+        .map_err(|e| format!("Failed to write app config: {e}"))
+}
+
+/// Load the peer JWT token from the config file.
+fn load_peer_token() -> Result<String, String> {
+    let content = std::fs::read_to_string(APP_CONFIG_PATH)
+        .map_err(|e| format!("Failed to read app config: {e}"))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse app config: {e}"))?;
+    json["peer_token"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "peer_token not found in config.json".to_string())
+}
+
 // ─── VPN Commands ─────────────────────────────────────────────────────────────
 
 /// Install the WireGuard tunnel service (Connect VPN).
@@ -215,16 +240,21 @@ async fn host_session(
         "max_players": max_players,
     });
 
+    let token = load_peer_token()
+        .map_err(|e| format!("No peer token — please re-run setup wizard: {e}"))?;
+
     let client = reqwest::Client::new();
     let response = client
         .post(&url)
+        .header("Authorization", format!("Bearer {}", token))
         .json(&body)
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("API error {}", response.status()));
+        let err_body = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err_body));
     }
 
     let session = response
@@ -284,9 +314,12 @@ async fn send_heartbeat(session_id: String) -> Result<(), String> {
     let base = load_api_url()?;
     let url = format!("{}/sessions/{}/heartbeat", base, session_id);
 
+    let token = load_peer_token().unwrap_or_default();
+
     let client = reqwest::Client::new();
     let response = client
         .put(&url)
+        .header("Authorization", format!("Bearer {}", token))
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {e}"))?;
@@ -518,6 +551,14 @@ async fn generate_and_register_peer(
         return Err(format!("Registration failed (HTTP {}): {}", status, body));
     }
 
+    // Extract peer JWT from response header (needed for session auth)
+    let peer_token = response
+        .headers()
+        .get("x-peer-token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
     // Server returns .conf template — replace placeholder with real private key
     let conf_template = response
         .text()
@@ -539,8 +580,8 @@ async fn generate_and_register_peer(
     std::fs::write(&save_path, &conf_content)
         .map_err(|e| format!("Failed to write conf file: {e}"))?;
 
-    // Persist API URL so all subsequent commands can find the server
-    save_api_url(&api_url)?;
+    // Persist API URL + peer token so all subsequent commands can find the server
+    save_config(&api_url, &peer_token)?;
 
     Ok(())
 }
@@ -583,7 +624,12 @@ pub fn run() {
                         // Load API URL dynamically — it may not exist on very first run
                         if let Ok(base_url) = load_api_url() {
                             let url = format!("{}/sessions/{}/heartbeat", base_url, sid);
-                            let _ = reqwest::Client::new().put(&url).send().await;
+                            let token = load_peer_token().unwrap_or_default();
+                            let _ = reqwest::Client::new()
+                                .put(&url)
+                                .header("Authorization", format!("Bearer {}", token))
+                                .send()
+                                .await;
                         }
                     }
                 }
