@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 
-from database import init_db
+from database import get_connection, init_db
 from models import TokenResponse, LoginRequest
 
 # ---------------------------------------------------------------------------
@@ -149,6 +149,22 @@ app.include_router(vpn_mode_router)
 async def health() -> dict:
     """Returns `{"status": "ok"}` — used by Docker health checks and monitoring."""
     return {"status": "ok", "version": "0.1.0"}
+
+
+@app.get(
+    "/vpn-mode",
+    tags=["system"],
+    summary="Public VPN mode status",
+    responses={200: {"description": "Current VPN mode (arma3/open)"}},
+)
+async def vpn_mode_status() -> dict:
+    """Expose current VPN mode to clients (read-only, no auth required)."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'vpn_mode'"
+        )
+        row = await cursor.fetchone()
+    return {"mode": row[0] if row else "arma3"}
 
 
 # ---------------------------------------------------------------------------

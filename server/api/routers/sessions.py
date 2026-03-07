@@ -243,6 +243,17 @@ async def list_sessions() -> list[SessionResponse]:
     return [_row_to_response(dict(r)) for r in rows]
 
 
+@router.get(
+    "/{session_id}",
+    response_model=SessionResponse,
+    summary="Get a single active session by ID (public)",
+)
+async def get_session(session_id: int) -> SessionResponse:
+    """Return one active session. Used by clients to resolve host tunnel IP."""
+    row = await _fetch_session(session_id)
+    return _row_to_response(row)
+
+
 @router.delete(
     "/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
