@@ -42,7 +42,7 @@ def _issue_peer_token(peer_id: int) -> str:
     from jose import jwt as _jwt
 
     payload = {
-        "sub": f"peer:{peer_id}",
+        "sub": str(peer_id),
         "role": "peer",
         "peer_id": peer_id,
         "iat": datetime.now(tz=timezone.utc),
@@ -186,19 +186,7 @@ async def create_peer(
             # Don't fail the request — peer is in DB, can be synced later
 
         # Issue peer token (stored nowhere — for future peer-JWT use)
-        from jose import jwt as _jwt
-        import os as _os
-        from datetime import timedelta as _timedelta
-
-        peer_token_payload = {
-            "sub": f"peer:{peer_id}",
-            "role": "peer",
-            "peer_id": peer_id,
-            "iat": datetime.now(tz=timezone.utc),
-            "exp": datetime.now(tz=timezone.utc) + _timedelta(days=365),
-        }
-        jwt_secret = _os.getenv("JWT_SECRET", "")
-        peer_token = _jwt.encode(peer_token_payload, jwt_secret, algorithm="HS256")
+        peer_token = _issue_peer_token(peer_id)
 
         logger.info("Peer created: id=%s name=%s ip=%s", peer_id, body.name, tunnel_ip)
 
