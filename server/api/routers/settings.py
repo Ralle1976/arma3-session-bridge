@@ -2,7 +2,7 @@
 settings.py — Admin Settings Router for arma3-session-bridge API.
 
 Endpoints:
-  GET /admin/settings  — Get current settings (masked)
+  GET /admin/settings  — Get current settings (full code for admins)
   PUT /admin/settings  — Update settings
 
 Requires Admin Bearer JWT for all endpoints.
@@ -10,7 +10,7 @@ Requires Admin Bearer JWT for all endpoints.
 
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import get_admin_user
@@ -20,8 +20,9 @@ router = APIRouter(prefix="/admin/settings", tags=["settings"])
 
 
 class SettingsResponse(BaseModel):
-    registration_code_masked: str
-    registration_code_preview: str  # first 4 chars visible
+    registration_code: str          # Vollständiger Code (nur für Admins)
+    registration_code_masked: str   # Maskiert (für Logs etc.)
+    server_url: str                 # Öffentliche Server-URL
 
 
 class SettingsUpdate(BaseModel):
@@ -34,23 +35,30 @@ def mask_code(code: str) -> str:
     return code[:4] + "*" * (len(code) - 4)
 
 
+def get_server_url(request: Request) -> str:
+    """Server-URL aus Env oder Request ableiten."""
+    env_url = os.getenv("SERVER_PUBLIC_URL", "")
+    if env_url:
+        return env_url.rstrip("/")
+    # Aus Request ableiten (hinter Nginx)
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "localhost")
+    scheme = request.headers.get("x-forwarded-proto", "https")
+    return f"{scheme}://{host}"
+
+
 @router.get("", response_model=SettingsResponse)
-async def get_settings(admin=Depends(get_admin_user)):
+async def get_settings(request: Request, admin=Depends(get_admin_user)):
     async with get_connection() as conn:
         cursor = await conn.execute(
             "SELECT value FROM app_settings WHERE key = 'registration_code'"
         )
         row = await cursor.fetchone()
 
-    if row:
-        code = row[0]
-    else:
-        code = os.getenv("PEER_REGISTRATION_CODE", "")
-
-    masked = mask_code(code)
+    code = row[0] if row else os.getenv("PEER_REGISTRATION_CODE", "")
     return SettingsResponse(
-        registration_code_masked=masked,
-        registration_code_preview=code[:4] if len(code) >= 4 else code,
+        registration_code=code,
+        registration_code_masked=mask_code(code),
+        server_url=get_server_url(request),
     )
 
 
@@ -70,5 +78,6 @@ async def update_settings(data: SettingsUpdate, admin=Depends(get_admin_user)):
         await conn.commit()
     return {
         "message": "Einstellungen gespeichert",
+        "registration_code": data.registration_code,
         "masked": mask_code(data.registration_code),
     }
