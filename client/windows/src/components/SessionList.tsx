@@ -21,6 +21,7 @@ interface SessionListProps {
   vpnConnected: boolean
   onRefresh: () => void
   loading: boolean
+  hostedSessionId: string | null
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ export const SessionList: FC<SessionListProps> = ({
   vpnConnected,
   onRefresh,
   loading,
+  hostedSessionId,
 }) => {
   const { t } = useTranslation()
   const [joinResult, setJoinResult] = useState<{ sessionId: string; ip: string } | null>(null)
@@ -103,9 +105,14 @@ export const SessionList: FC<SessionListProps> = ({
             <button
               className="btn btn-primary btn-sm"
               onClick={() => handleJoin(session.id)}
-              disabled={joining === session.id || session.current_players >= session.max_players}
+              disabled={
+                joining === session.id ||
+                session.current_players >= session.max_players ||
+                hostedSessionId === session.id
+              }
+              title={hostedSessionId === session.id ? 'Du bist bereits Host dieser Session' : undefined}
             >
-              {joining === session.id ? '...' : t.btnJoin}
+              {hostedSessionId === session.id ? 'Host' : joining === session.id ? '...' : t.btnJoin}
             </button>
           </div>
         ))

@@ -28,6 +28,7 @@ function App() {
   const [vpnStatus, setVpnStatus] = useState<VpnStatus>('disconnected')
   const [vpnError, setVpnError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
+  const [hostedSessionId, setHostedSessionId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState<ActiveTab>('sessions')
   const [appVersion, setAppVersion] = useState<string>('...')
@@ -250,14 +251,17 @@ function App() {
             vpnConnected={vpnStatus === 'connected'}
             onRefresh={refreshSessions}
             loading={loading}
+            hostedSessionId={hostedSessionId}
           />
         ) : (
           <HostSessionForm
             vpnConnected={vpnStatus === 'connected'}
             onSessionCreated={(session) => {
               setSessions((prev) => [session, ...prev])
+              setHostedSessionId(String(session.id))
               setTab('sessions')
             }}
+            onSessionCleared={() => setHostedSessionId(null)}
           />
         )}
       </div>

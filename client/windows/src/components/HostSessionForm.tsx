@@ -11,6 +11,7 @@ import type { Session } from './SessionList'
 interface HostSessionFormProps {
   vpnConnected: boolean
   onSessionCreated: (session: Session) => void
+  onSessionCleared: () => void
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ interface HostSessionFormProps {
 export const HostSessionForm: FC<HostSessionFormProps> = ({
   vpnConnected,
   onSessionCreated,
+  onSessionCleared,
 }) => {
   const { t } = useTranslation()
   const [missionName, setMissionName] = useState('')
@@ -51,6 +53,7 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
     setMissionName('')
     setMaxPlayers(8)
     setError(null)
+    onSessionCleared()
   }
 
   // ── Gate: VPN required ─────────────────────────────────────────────────────
@@ -71,6 +74,9 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
       <div>
         <div className="session-active-banner">
           <span className="session-active-text">🟢 {t.sessionActive}: {hosted.mission_name}</span>
+          <div style={{ marginTop: 6, marginBottom: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+            Du bist bereits Host. Beitreten ist nicht noetig.
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <code style={{ color: 'var(--green)', fontSize: 13 }}>{hosted.host_tunnel_ip}</code>
             <button

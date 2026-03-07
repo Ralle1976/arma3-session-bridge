@@ -64,14 +64,13 @@ async def _next_tunnel_ip(conn) -> str:
     Raises:
         HTTPException 503: if all 19 slots are occupied.
     """
-    # Check ALL peers (including revoked) — tunnel_ip has a UNIQUE DB constraint,
-    # so revoked IPs can only be reused if the old row is deleted (not our approach).
-    # Instead we assign IPs from the pool to new peers only from unoccupied slots.
+    # Only ACTIVE peers consume the live tunnel IP pool.
+    # Revoked rows can be recycled in create/register flows.
     cursor = await conn.execute(
-        "SELECT tunnel_ip FROM peers ORDER BY tunnel_ip"
+        "SELECT tunnel_ip FROM peers WHERE revoked = 0 ORDER BY tunnel_ip"
     )
     rows = await cursor.fetchall()
-    used = {row["tunnel_ip"] for row in rows}  # all IPs in DB (active + revoked)
+    used = {row["tunnel_ip"] for row in rows}
 
     for last_octet in range(_PEER_IP_START, _PEER_IP_END + 1):
         candidate = f"{_TUNNEL_BASE}{last_octet}"
@@ -80,7 +79,7 @@ async def _next_tunnel_ip(conn) -> str:
 
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Maximum number of peers reached (19). Revoke a peer first.",
+        detail="Maximum number of ACTIVE peers reached (19).",
     )
 
 
@@ -141,7 +140,7 @@ async def create_peer(
         )
         if await cursor.fetchone():
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Gerätename '{body.name}' ist bereits vergeben. Wähle einen anderen Namen.",
             )
 
@@ -157,23 +156,42 @@ async def create_peer(
                 detail=str(exc),
             ) from exc
 
-        # Insert peer into DB
+        # Insert or recycle a revoked slot with the same tunnel_ip
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            cursor = await conn.execute(
+        recycled = await conn.execute(
+            "SELECT id FROM peers WHERE tunnel_ip = ? AND revoked = 1",
+            (tunnel_ip,),
+        )
+        recycled_row = await recycled.fetchone()
+
+        if recycled_row:
+            peer_id = recycled_row["id"]
+            await conn.execute(
                 """
-                INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
-                VALUES (?, ?, ?, ?, ?, 0)
+                UPDATE peers
+                SET name = ?, public_key = ?, allowed_ips = ?, created_at = ?,
+                    revoked = 0, revoked_at = NULL
+                WHERE id = ?
                 """,
-                (body.name, public_key, tunnel_ip, body.allowed_ips, now),
+                (body.name, public_key, body.allowed_ips, now, peer_id),
             )
-            peer_id = cursor.lastrowid
             await conn.commit()
-        except sqlite3.IntegrityError:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"Gerätename '{body.name}' ist bereits vergeben. Wähle einen anderen Namen.",
-            )
+        else:
+            try:
+                cursor = await conn.execute(
+                    """
+                    INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
+                    VALUES (?, ?, ?, ?, ?, 0)
+                    """,
+                    (body.name, public_key, tunnel_ip, body.allowed_ips, now),
+                )
+                peer_id = cursor.lastrowid
+                await conn.commit()
+            except sqlite3.IntegrityError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Gerätename '{body.name}' ist bereits vergeben. Wähle einen anderen Namen.",
+                )
 
         # Sync WireGuard (no downtime)
         active_peers = await _get_active_peers(conn)
@@ -377,22 +395,41 @@ async def register_peer(
         # 2. Assign tunnel IP
         tunnel_ip = await _next_tunnel_ip(conn)
 
-        # 3. Insert peer — public_key comes from the client
+        # 3. Insert peer or recycle revoked slot — public_key comes from the client
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        cursor = await conn.execute(
-            """
-            INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
-            VALUES (?, ?, ?, ?, ?, 0)
-            """,
-            (body.name, body.public_key, tunnel_ip, "10.8.0.0/24", now),
+        recycled = await conn.execute(
+            "SELECT id FROM peers WHERE tunnel_ip = ? AND revoked = 1",
+            (tunnel_ip,),
         )
-        peer_id = cursor.lastrowid
-        if peer_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to persist peer id",
+        recycled_row = await recycled.fetchone()
+
+        if recycled_row:
+            peer_id = recycled_row["id"]
+            await conn.execute(
+                """
+                UPDATE peers
+                SET name = ?, public_key = ?, allowed_ips = ?, created_at = ?,
+                    revoked = 0, revoked_at = NULL
+                WHERE id = ?
+                """,
+                (body.name, body.public_key, "10.8.0.0/24", now, peer_id),
             )
-        await conn.commit()
+            await conn.commit()
+        else:
+            cursor = await conn.execute(
+                """
+                INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
+                VALUES (?, ?, ?, ?, ?, 0)
+                """,
+                (body.name, body.public_key, tunnel_ip, "10.8.0.0/24", now),
+            )
+            peer_id = cursor.lastrowid
+            if peer_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to persist peer id",
+                )
+            await conn.commit()
 
         # 4. Sync WireGuard
         active_peers = await _get_active_peers(conn)
