@@ -203,8 +203,9 @@ Bei Problemen einfach melden.`;
             </button>
           </div>
         </div>
+      </div>
 
-      {/* VPN-Modus Card */}
+      {/* ── VPN-Modus ───────────────────────────────────── */}
       <div style={s.card}>
         <h2 style={s.h2}>🔥 VPN-Modus</h2>
         <p style={s.desc}>
@@ -260,8 +261,8 @@ const s: Record<string, React.CSSProperties> = {
   btnGhost:     { background: 'transparent', color: '#8b92a9', border: '1px solid #2a2d3e', borderRadius: 6, padding: '0.25rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap' },
   alertSuccess: { background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem' },
   alertError:   { background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem' },
-  modeRow:       { display: 'flex', gap: '1rem', marginBottom: '1rem' },
-  modeBtn:       { flex: 1, background: '#0f1117', border: '2px solid #2a2d3e', borderRadius: 10, padding: '0.9rem 1rem', cursor: 'pointer', color: '#8b92a9', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' } as React.CSSProperties,
-  modeBtnActive: { borderColor: '#5865f2', color: '#f1f2f6', background: 'rgba(88,101,242,0.1)' },
-  modeHint:      { fontSize: '0.72rem', color: '#8b92a9' },
+  modeRow:      { display: 'flex', gap: '1rem', marginBottom: '1rem' },
+  modeBtn:      { flex: 1, background: '#0f1117', border: '2px solid #2a2d3e', borderRadius: 10, padding: '0.9rem 1rem', cursor: 'pointer', color: '#8b92a9', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' },
+  modeBtnActive:{ borderColor: '#5865f2', color: '#f1f2f6', background: 'rgba(88,101,242,0.1)' },
+  modeHint:     { fontSize: '0.72rem', color: '#8b92a9' },
 };
