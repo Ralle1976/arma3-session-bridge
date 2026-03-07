@@ -11,6 +11,7 @@ RUN npm ci --frozen-lockfile 2>/dev/null || npm install
 COPY . .
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=$VITE_API_URL
+ENV NODE_OPTIONS=--max-old-space-size=384
 RUN npm run build
 
 # Stage 2: Serve
