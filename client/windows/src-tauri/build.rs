@@ -1,10 +1,15 @@
 fn main() {
     // Embed Windows application manifest requiring administrator elevation.
-    // WireGuard tunnel service operations (install/uninstall) require admin rights.
-    // This causes Windows to show a UAC prompt when launching the app.
+    // wireguard.exe /installtunnelservice and /uninstalltunnelservice
+    // both require admin rights — this forces a UAC prompt on app launch.
     #[cfg(target_os = "windows")]
     {
-        println!(r#"cargo:rustc-link-arg=/MANIFESTUAC:level='requireAdministrator'"#);
+        use embed_manifest::{embed_manifest, manifest::ExecutionLevel, new_manifest};
+        embed_manifest(
+            new_manifest("Arma3SessionBridge")
+                .requested_execution_level(ExecutionLevel::RequireAdministrator),
+        )
+        .expect("unable to embed admin manifest");
     }
 
     tauri_build::build()
