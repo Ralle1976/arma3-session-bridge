@@ -296,7 +296,10 @@ fn validate_conf(path: String) -> Result<bool, String> {
             && !trimmed.contains("0.0.0.0/0")
     });
 
-    Ok(has_interface && has_split_tunnel)
+    // Conf must NOT still contain the private-key placeholder
+    let has_real_key = !content.contains("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>");
+
+    Ok(has_interface && has_split_tunnel && has_real_key)
 }
 
 /// Get the current WireGuard tunnel IP address.
