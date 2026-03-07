@@ -1,27 +1,83 @@
 :root {
-  --bg-base: #0a0f17;
-  --bg-surface: #131d2c;
-  --bg-raised: #1a2a40;
-  --bg-hover: #223552;
+  /* ── Base Colors ─────────────────────────────────────── */
+  --bg-base: #060b12;
+  --bg-surface: #0e1825;
+  --bg-raised: #162233;
+  --bg-hover: #1e3048;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
+  --accent-bright: #60a5fa;
   --green: #22c55e;
-  --green-dim: rgba(34, 197, 94, 0.15);
+  --green-dim: rgba(34, 197, 94, 0.12);
   --red: #ef4444;
-  --red-dim: rgba(239, 68, 68, 0.15);
+  --red-dim: rgba(239, 68, 68, 0.12);
   --yellow: #eab308;
-  --yellow-dim: rgba(234, 179, 8, 0.15);
+  --yellow-dim: rgba(234, 179, 8, 0.12);
   --text-primary: #eef2ff;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --border: #2b3d56;
-  --border-strong: #37506f;
+  --text-muted: #4a6080;
+
+  /* ── Borders ─────────────────────────────────────────── */
+  --border: rgba(59, 130, 246, 0.12);
+  --border-strong: rgba(96, 165, 250, 0.22);
+  --border-glow: rgba(96, 165, 250, 0.35);
+
+  /* ── Border Radius ───────────────────────────────────── */
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
-  --shadow-sm: 0 6px 16px rgba(2, 8, 20, 0.35);
-  --shadow: 0 10px 28px rgba(2, 8, 20, 0.45);
-  --shadow-lg: 0 20px 44px rgba(2, 8, 20, 0.55);
+  --radius-xl: 20px;
+
+  /* ── Shadows — multi-layer with blue tint ────────────── */
+  --shadow-sm:
+    0 2px 6px rgba(0, 5, 15, 0.55),
+    0 6px 18px rgba(0, 10, 30, 0.4),
+    0 0 0 1px rgba(59, 130, 246, 0.05);
+
+  --shadow:
+    0 4px 12px rgba(0, 5, 20, 0.6),
+    0 12px 32px rgba(0, 10, 40, 0.5),
+    0 24px 56px rgba(0, 5, 25, 0.35),
+    0 0 0 1px rgba(59, 130, 246, 0.07);
+
+  --shadow-lg:
+    0 8px 24px rgba(0, 5, 20, 0.7),
+    0 20px 50px rgba(0, 10, 40, 0.6),
+    0 40px 80px rgba(0, 5, 30, 0.45),
+    0 0 0 1px rgba(59, 130, 246, 0.1);
+
+  --shadow-float:
+    0 16px 40px rgba(0, 5, 20, 0.8),
+    0 32px 72px rgba(0, 10, 45, 0.65),
+    0 60px 100px rgba(0, 5, 30, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+  /* ── Glow Effects ────────────────────────────────────── */
+  --glow-accent:
+    0 0 12px rgba(59, 130, 246, 0.4),
+    0 0 28px rgba(59, 130, 246, 0.2),
+    0 0 48px rgba(59, 130, 246, 0.08);
+
+  --glow-accent-sm:
+    0 0 8px rgba(59, 130, 246, 0.35),
+    0 0 18px rgba(59, 130, 246, 0.15);
+
+  --glow-green:
+    0 0 10px rgba(34, 197, 94, 0.5),
+    0 0 24px rgba(34, 197, 94, 0.25),
+    0 0 42px rgba(34, 197, 94, 0.1);
+
+  --glow-red:
+    0 0 10px rgba(239, 68, 68, 0.5),
+    0 0 24px rgba(239, 68, 68, 0.25),
+    0 0 42px rgba(239, 68, 68, 0.1);
+
+  /* ── Glassmorphism ───────────────────────────────────── */
+  --glass-bg: rgba(14, 24, 37, 0.72);
+  --glass-bg-raised: rgba(20, 34, 52, 0.78);
+  --glass-bg-float: rgba(10, 18, 30, 0.88);
+  --glass-border: rgba(255, 255, 255, 0.05);
+  --glass-border-accent: rgba(96, 165, 250, 0.15);
 }
 
 
@@ -36,8 +92,9 @@ html, body, #root {
 body {
   font-family: 'Segoe UI', 'Inter', 'Manrope', sans-serif;
   background:
-    radial-gradient(1200px 600px at 15% -5%, rgba(59, 130, 246, 0.16), transparent 60%),
-    radial-gradient(900px 500px at 90% 110%, rgba(14, 165, 233, 0.12), transparent 55%),
+    radial-gradient(ellipse 1400px 700px at 10% -10%, rgba(59, 130, 246, 0.22), transparent 55%),
+    radial-gradient(ellipse 1000px 600px at 95% 105%, rgba(14, 165, 233, 0.16), transparent 50%),
+    radial-gradient(ellipse 700px 400px at 50% 50%, rgba(30, 60, 100, 0.08), transparent 70%),
     var(--bg-base);
   color: var(--text-primary);
   font-size: 14px;
@@ -47,7 +104,7 @@ body {
 }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-base); }
-::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(59, 130, 246, 0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(59, 130, 246, 0.4); }
