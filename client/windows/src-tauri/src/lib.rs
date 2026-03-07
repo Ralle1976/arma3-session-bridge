@@ -3,7 +3,8 @@
 /// Exports:
 ///   - Tauri commands: connect_vpn, disconnect_vpn, check_vpn_status,
 ///     get_sessions, host_session, join_session, send_heartbeat,
-///     validate_conf, get_host_ip, download_peer_config
+///     validate_conf, check_peer_exists, delete_conf_file,
+///     get_host_ip, download_peer_config, generate_and_register_peer
 ///   - System-Tray with: Connect / Disconnect / Quit menu items
 ///   - Auto-Heartbeat: sends PUT /sessions/{id}/heartbeat every 60 s when hosting
 ///   - `run()` — entry point called from main.rs
@@ -22,10 +23,10 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use vpn::VpnStatus;
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
+// ─── Config Path ───────────────────────────────────────────────────────────────
 
-/// Bridge API base URL (hardcoded MVP — configurable via Tauri config in future).
-const API_BASE_URL: &str = "http://YOUR_SERVER_IP:8001";
+/// Persistent app config (api_url stored here after first-run wizard).
+const APP_CONFIG_PATH: &str = r"C:\ProgramData\arma3-session-bridge\config.json";
 
 // ─── Shared Application State ─────────────────────────────────────────────────
 
@@ -52,6 +53,34 @@ pub struct Session {
     pub current_players: u32,
     pub max_players: u32,
     pub status: String,
+}
+
+// ─── API URL Helpers ───────────────────────────────────────────────────────────
+
+/// Load the API base URL from the persisted config file.
+///
+/// Returns `Err` if the file doesn't exist or `api_url` key is missing.
+fn load_api_url() -> Result<String, String> {
+    let content = std::fs::read_to_string(APP_CONFIG_PATH)
+        .map_err(|e| format!("Failed to read app config: {e}"))?;
+    let json: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse app config: {e}"))?;
+    json["api_url"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "api_url not found in config.json".to_string())
+}
+
+/// Save the API base URL to the persisted config file.
+///
+/// Creates `C:\ProgramData\arma3-session-bridge\` if it doesn't exist.
+fn save_api_url(api_url: &str) -> Result<(), String> {
+    let config_dir = r"C:\ProgramData\arma3-session-bridge";
+    std::fs::create_dir_all(config_dir)
+        .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    let json = serde_json::json!({ "api_url": api_url });
+    std::fs::write(APP_CONFIG_PATH, json.to_string())
+        .map_err(|e| format!("Failed to write app config: {e}"))
 }
 
 // ─── VPN Commands ─────────────────────────────────────────────────────────────
@@ -148,7 +177,8 @@ fn check_vpn_status(
 /// Invoked from frontend: `invoke('get_sessions')`
 #[tauri::command]
 async fn get_sessions() -> Result<Vec<Session>, String> {
-    let url = format!("{}/sessions", API_BASE_URL);
+    let base = load_api_url()?;
+    let url = format!("{}/sessions", base);
 
     let response = reqwest::get(&url)
         .await
@@ -178,7 +208,8 @@ async fn host_session(
     mission_name: String,
     max_players: u32,
 ) -> Result<Session, String> {
-    let url = format!("{}/sessions", API_BASE_URL);
+    let base = load_api_url()?;
+    let url = format!("{}/sessions", base);
     let body = serde_json::json!({
         "mission_name": mission_name,
         "max_players": max_players,
@@ -224,7 +255,8 @@ async fn host_session(
 /// Invoked from frontend: `invoke('join_session', { sessionId })`
 #[tauri::command]
 async fn join_session(session_id: String) -> Result<String, String> {
-    let url = format!("{}/sessions/{}", API_BASE_URL, session_id);
+    let base = load_api_url()?;
+    let url = format!("{}/sessions/{}", base, session_id);
 
     let response = reqwest::get(&url)
         .await
@@ -249,7 +281,8 @@ async fn join_session(session_id: String) -> Result<String, String> {
 /// Invoked from frontend: `invoke('send_heartbeat', { sessionId })`
 #[tauri::command]
 async fn send_heartbeat(session_id: String) -> Result<(), String> {
-    let url = format!("{}/sessions/{}/heartbeat", API_BASE_URL, session_id);
+    let base = load_api_url()?;
+    let url = format!("{}/sessions/{}/heartbeat", base, session_id);
 
     let client = reqwest::Client::new();
     let response = client
@@ -300,6 +333,73 @@ fn validate_conf(path: String) -> Result<bool, String> {
     let has_real_key = !content.contains("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>");
 
     Ok(has_interface && has_split_tunnel && has_real_key)
+}
+
+/// Check whether the registered peer still exists on the server.
+///
+/// Reads the peer name from the `# PeerName:` comment in the .conf file,
+/// falls back to the filename stem. Then calls `GET {api_url}/peers/{name}/config`.
+///
+/// Returns `true` on HTTP 200, `false` on 404 or network error.
+/// Returns `true` as a safe fallback if no API URL is configured yet.
+///
+/// Invoked from frontend: `invoke('check_peer_exists', { confPath: '...' })`
+#[tauri::command]
+async fn check_peer_exists(conf_path: String) -> Result<bool, String> {
+    // Read conf file — if missing, peer obviously doesn't exist locally
+    let content = match std::fs::read_to_string(&conf_path) {
+        Ok(c) => c,
+        Err(_) => return Ok(false),
+    };
+
+    // Extract peer name from "# PeerName: <name>" comment, fall back to filename stem
+    let peer_name = content
+        .lines()
+        .find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("# PeerName:") {
+                let name = trimmed.trim_start_matches("# PeerName:").trim().to_string();
+                if !name.is_empty() { Some(name) } else { None }
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            std::path::Path::new(&conf_path)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .filter(|n| !n.is_empty());
+
+    let peer_name = match peer_name {
+        Some(n) => n,
+        None => return Ok(false),
+    };
+
+    // Safe fallback: if no API URL configured yet, assume peer exists
+    let api_url = match load_api_url() {
+        Ok(url) => url,
+        Err(_) => return Ok(true),
+    };
+
+    let url = format!("{}/peers/{}/config", api_url.trim_end_matches('/'), peer_name);
+
+    match reqwest::get(&url).await {
+        Ok(response) => Ok(response.status() == reqwest::StatusCode::OK),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Delete the WireGuard .conf file from disk.
+///
+/// Called when the peer no longer exists on the server, forcing re-registration.
+///
+/// Invoked from frontend: `invoke('delete_conf_file', { path: '...' })`
+#[tauri::command]
+fn delete_conf_file(path: String) -> Result<(), String> {
+    std::fs::remove_file(&path)
+        .map_err(|e| format!("Failed to delete conf file: {e}"))
 }
 
 /// Get the current WireGuard tunnel IP address.
@@ -375,7 +475,9 @@ async fn download_peer_config(
 ///   1. Generate Curve25519 keypair locally (private + public key, base64)
 ///   2. POST {api_url}/peers/register { name, public_key } with Bearer token
 ///   3. Replace placeholder in returned .conf with real private_key
-///   4. Write .conf to save_path
+///   4. Prepend `# PeerName: {name}` comment as first line
+///   5. Write .conf to save_path
+///   6. Persist api_url to C:\ProgramData\arma3-session-bridge\config.json
 ///
 /// Invoked from frontend:
 ///   `invoke('generate_and_register_peer', { apiUrl, peerName, savePath, registrationCode })`
@@ -421,16 +523,24 @@ async fn generate_and_register_peer(
         .text()
         .await
         .map_err(|e| format!("Failed to read registration response: {e}"))?;
-    let conf_content = conf_template
-        .replace("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>", &private_key_b64);
+
+    // Prepend PeerName comment (first line) so check_peer_exists can find it later
+    let conf_content = format!(
+        "# PeerName: {}\n{}",
+        peer_name,
+        conf_template.replace("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>", &private_key_b64)
+    );
 
     // Write .conf to disk
     if let Some(parent) = std::path::Path::new(&save_path).parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create config directory: {e}"))?;
     }
-    std::fs::write(&save_path, conf_content)
+    std::fs::write(&save_path, &conf_content)
         .map_err(|e| format!("Failed to write conf file: {e}"))?;
+
+    // Persist API URL so all subsequent commands can find the server
+    save_api_url(&api_url)?;
 
     Ok(())
 }
@@ -470,8 +580,11 @@ pub fn run() {
                         lock.clone()
                     };
                     if let Some(sid) = sid_opt {
-                        let url = format!("{}/sessions/{}/heartbeat", API_BASE_URL, sid);
-                        let _ = reqwest::Client::new().put(&url).send().await;
+                        // Load API URL dynamically — it may not exist on very first run
+                        if let Ok(base_url) = load_api_url() {
+                            let url = format!("{}/sessions/{}/heartbeat", base_url, sid);
+                            let _ = reqwest::Client::new().put(&url).send().await;
+                        }
                     }
                 }
             });
@@ -581,6 +694,8 @@ pub fn run() {
             join_session,
             send_heartbeat,
             validate_conf,
+            check_peer_exists,
+            delete_conf_file,
             get_host_ip,
             download_peer_config,
             generate_and_register_peer,

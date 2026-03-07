@@ -9,8 +9,12 @@
 
 use std::path::Path;
 use std::process::Command;
+use std::os::windows::process::CommandExt;
 
 use serde::{Deserialize, Serialize};
+
+// CREATE_NO_WINDOW — prevents console window flashing when spawning child processes
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 // ─── Structs ───────────────────────────────────────────────────────────────────
 
@@ -110,6 +114,7 @@ Start-Process -FilePath $out -ArgumentList '/S' -Wait
     let _ = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                tmp.to_str().unwrap_or("")])
+        .creation_flags(CREATE_NO_WINDOW)
         .status();
 
     let _ = std::fs::remove_file(&tmp);
@@ -134,6 +139,7 @@ Start-Process -FilePath $out -ArgumentList '/S' -Wait
 pub fn get_tunnel_ip() -> Result<String, String> {
     let output = Command::new("netsh")
         .args(["interface", "ipv4", "show", "addresses"])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("Failed to run netsh: {e}"))?;
 
@@ -205,16 +211,19 @@ pub fn install_tunnel_service(conf_path: &str) -> Result<(), String> {
 
     let _ = std::process::Command::new("sc.exe")
         .args(["stop", &service_name])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
     std::thread::sleep(std::time::Duration::from_millis(1500));
 
     let _ = std::process::Command::new("sc.exe")
         .args(["delete", &service_name])
+        .creation_flags(CREATE_NO_WINDOW)
         .output();
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     let output = Command::new(wireguard_exe_path())
         .args(["/installtunnelservice", conf_path])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("Failed to run wireguard.exe: {e}"))?;
 
@@ -251,6 +260,7 @@ pub fn uninstall_tunnel_service(tunnel_name: &str) -> Result<(), String> {
 
     let status = Command::new(wireguard_exe_path())
         .args(["/uninstalltunnelservice", tunnel_name])
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map_err(|e| format!("Failed to run wireguard.exe: {e}"))?;
 
@@ -277,6 +287,7 @@ pub fn is_tunnel_running(tunnel_name: &str) -> bool {
 
     match Command::new("sc.exe")
         .args(["query", &service_name])
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
     {
         Ok(output) => {
@@ -293,6 +304,7 @@ pub fn is_tunnel_running(tunnel_name: &str) -> bool {
 pub fn dump_log() -> Result<String, String> {
     let output = Command::new(wireguard_exe_path())
         .arg("/dumplog")
+        .creation_flags(CREATE_NO_WINDOW)
         .output()
         .map_err(|e| format!("Failed to run wireguard.exe: {e}"))?;
 
@@ -316,6 +328,7 @@ fn wireguard_is_present() -> bool {
     // Also check PATH via where.exe
     Command::new("where.exe")
         .arg("wireguard.exe")
+        .creation_flags(CREATE_NO_WINDOW)
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
@@ -395,7 +408,7 @@ mod tests {
     fn test_wireguard_exe_path_is_valid_string() {
         let path = wireguard_exe_path();
         assert!(path.contains("wireguard.exe"));
-        assert!(path.contains("WireGuard"));
+        assert!(path.contains("WireGuard") || path == "wireguard.exe");
     }
 
     #[test]

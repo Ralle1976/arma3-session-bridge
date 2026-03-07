@@ -25,6 +25,7 @@ type VpnStatus = 'connected' | 'disconnected' | 'connecting'
 function App() {
   const { lang, t, toggleLang } = useTranslation()
   const [vpnStatus, setVpnStatus] = useState<VpnStatus>('disconnected')
+  const [vpnError, setVpnError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(false)
   const [tab, setTab] = useState<ActiveTab>('sessions')
@@ -34,12 +35,14 @@ function App() {
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
+    setVpnError(null)
     setVpnStatus('connecting')
     try {
       await invoke<string>('connect_vpn', { confPath: WG_CONF_PATH })
       setVpnStatus('connected')
-    } catch {
+    } catch (e) {
       setVpnStatus('disconnected')
+      setVpnError(String(e))
     }
   }, [])
 
@@ -88,8 +91,29 @@ function App() {
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   useEffect(() => {
+    // Step 1: validate local .conf syntax
     invoke<boolean>('validate_conf', { path: WG_CONF_PATH })
-      .then((valid) => setConfigValid(valid))
+      .then(async (valid) => {
+        if (!valid) {
+          // File missing or invalid — show wizard
+          setConfigValid(false)
+          return
+        }
+        // Step 2: verify peer still exists on the server
+        try {
+          const exists = await invoke<boolean>('check_peer_exists', { confPath: WG_CONF_PATH })
+          if (!exists) {
+            // Peer deleted on server — wipe local conf and show wizard
+            await invoke('delete_conf_file', { path: WG_CONF_PATH })
+            setConfigValid(false)
+          } else {
+            setConfigValid(true)
+          }
+        } catch {
+          // If peer check fails unexpectedly, proceed as valid to avoid false re-registration
+          setConfigValid(true)
+        }
+      })
       .catch(() => setConfigValid(false))
   }, [])
 
@@ -172,6 +196,20 @@ function App() {
           </button>
         </div>
       </div>
+
+      {/* VPN Error Banner */}
+      {vpnError !== null && (
+        <div style={{
+          background: 'var(--error, #c0392b)',
+          color: '#fff',
+          padding: '8px 16px',
+          fontSize: '0.875rem',
+          borderRadius: '4px',
+          margin: '8px 16px 0',
+        }}>
+          ⚠️ VPN-Fehler: {vpnError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tabs">
