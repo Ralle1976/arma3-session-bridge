@@ -53,7 +53,8 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
       const valid = await invoke<boolean>('validate_conf', { path: confPath })
       if (!valid) {
         setError('Generierte Config ist ungültig. Admin kontaktieren.')
-
+        return
+      }
       onComplete()
     } catch (e) {
       setError(String(e))
