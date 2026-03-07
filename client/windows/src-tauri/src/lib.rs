@@ -68,6 +68,19 @@ pub struct Session {
     pub status: String,
 }
 
+// ─── Connection Info Struct ───────────────────────────────────────────────────
+
+/// Diagnostic snapshot of the current VPN connection.
+#[derive(Debug, Clone, Serialize)]
+pub struct ConnectionInfo {
+    pub tunnel_ip: Option<String>,
+    pub server_url: Option<String>,
+    /// "split-tunnel" or "full-tunnel"
+    pub vpn_mode: String,
+    pub api_latency_ms: Option<u64>,
+    pub wireguard_installed: bool,
+    pub peer_name: Option<String>,
+}
 // ─── API URL Helpers ───────────────────────────────────────────────────────────
 
 /// Load the API base URL from the persisted config file.
@@ -612,6 +625,80 @@ async fn generate_and_register_peer(
     Ok(())
 }
 
+// ─── Connection Info Command ──────────────────────────────────────────────────
+
+/// Return a diagnostic snapshot of the current VPN connection.
+///
+/// Invoked from frontend: `invoke('get_connection_info')`
+#[tauri::command]
+async fn get_connection_info() -> Result<ConnectionInfo, String> {
+    const CONF_PATH: &str = r"C:\ProgramData\WireGuard\arma3-session-bridge.conf";
+
+    // Tunnel IP
+    let tunnel_ip = vpn::get_tunnel_ip().ok();
+
+    // Server URL from persisted config
+    let server_url = load_api_url().ok();
+
+    // Read conf file once — used for vpn_mode and peer_name
+    let conf_content = std::fs::read_to_string(CONF_PATH).ok();
+
+    // VPN mode: full-tunnel if any AllowedIPs line contains 0.0.0.0/0
+    let vpn_mode = conf_content.as_deref().map(|content| {
+        let is_full_tunnel = content.lines().any(|line| {
+            let t = line.trim();
+            t.starts_with("AllowedIPs") && t.contains("0.0.0.0/0")
+        });
+        if is_full_tunnel { "full-tunnel".to_string() } else { "split-tunnel".to_string() }
+    }).unwrap_or_else(|| "split-tunnel".to_string());
+
+    // Peer name from "# PeerName: <name>" comment in conf
+    let peer_name = conf_content.as_deref().and_then(|content| {
+        content.lines().find_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("# PeerName:") {
+                let name = trimmed.trim_start_matches("# PeerName:").trim().to_string();
+                if !name.is_empty() { Some(name) } else { None }
+            } else {
+                None
+            }
+        })
+    });
+
+    // WireGuard binary presence check
+    let wireguard_installed =
+        std::path::Path::new(r"C:\Program Files\WireGuard\wireguard.exe").exists();
+
+    // API latency — GET {server_url}/health with 5 s timeout
+    let api_latency_ms = if let Some(ref url) = server_url {
+        let health_url = format!("{}/health", url.trim_end_matches('/'));
+        match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .build()
+        {
+            Ok(client) => {
+                let start = std::time::Instant::now();
+                match client.get(&health_url).send().await {
+                    Ok(_) => Some(start.elapsed().as_millis() as u64),
+                    Err(_) => None,
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    Ok(ConnectionInfo {
+        tunnel_ip,
+        server_url,
+        vpn_mode,
+        api_latency_ms,
+        wireguard_installed,
+        peer_name,
+    })
+}
+
 // ─── Application Entry ─────────────────────────────────────────────────────────
 
 /// Build and run the Tauri application.
@@ -773,6 +860,7 @@ pub fn run() {
             get_host_ip,
             download_peer_config,
             generate_and_register_peer,
+            get_connection_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,6 +5,7 @@ import { getVersion } from '@tauri-apps/api/app'
 import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
 import { FirstRunWizard } from './components/FirstRunWizard'
+import { ConnectionInfoPanel } from './components/ConnectionInfoPanel'
 import { useTranslation } from './i18n/LanguageContext'
 import type { Session } from './components/SessionList'
 import './App.css'
@@ -34,6 +35,7 @@ function App() {
   const [appVersion, setAppVersion] = useState<string>('...')
   // null = checking, false = missing/invalid, true = valid
   const [configValid, setConfigValid] = useState<boolean | null>(null)
+  const [showConnectionInfo, setShowConnectionInfo] = useState(false)
 
   // ── VPN actions ─────────────────────────────────────────────────────
 
@@ -199,6 +201,15 @@ function App() {
           </div>
         </div>
         <div className="titlebar-right">
+          {vpnStatus === 'connected' && (
+            <button
+              className="info-toggle-btn"
+              onClick={() => setShowConnectionInfo((v) => !v)}
+              title="Connection diagnostics"
+            >
+              ℹ️
+            </button>
+          )}
           <button className="lang-toggle" onClick={toggleLang}>
             {lang === 'de' ? 'EN' : 'DE'}
           </button>
@@ -242,6 +253,9 @@ function App() {
           {t.tabHost}
         </button>
       </div>
+
+      {/* Connection Info Panel (shown when VPN connected and panel toggled open) */}
+      <ConnectionInfoPanel visible={showConnectionInfo && vpnStatus === 'connected'} />
 
       {/* Content */}
       <div className="tab-content">
