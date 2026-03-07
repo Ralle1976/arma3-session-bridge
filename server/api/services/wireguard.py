@@ -35,7 +35,7 @@ def generate_keypair() -> tuple[str, str]:
         )
         private_key = private_result.stdout.strip()
         public_result = subprocess.run(
-            ["docker", "exec", WG_CONTAINER, "wg", "pubkey"],
+            ["docker", "exec", "-i", WG_CONTAINER, "wg", "pubkey"],
             input=private_key,
             capture_output=True,
             text=True,
