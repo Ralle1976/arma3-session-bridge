@@ -37,6 +37,7 @@ export default function SessionsPage() {
     }
 
     es.addEventListener('session_started', refresh)
+    es.addEventListener('session_created', refresh)
     es.addEventListener('session_ended', refresh)
     es.addEventListener('session_updated', refresh)
     es.onmessage = refresh

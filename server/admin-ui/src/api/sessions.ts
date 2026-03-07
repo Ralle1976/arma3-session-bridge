@@ -16,11 +16,11 @@ export interface Session {
 }
 
 export async function listSessions(): Promise<Session[]> {
-  const res = await apiClient.get<Session[]>('/sessions')
+  const res = await apiClient.get<Session[]>('/admin/sessions')
   return res.data
 }
 
 export async function getSession(id: string): Promise<Session> {
-  const res = await apiClient.get<Session>(`/sessions/${id}`)
+  const res = await apiClient.get<Session>(`/admin/sessions/${id}`)
   return res.data
 }

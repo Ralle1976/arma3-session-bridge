@@ -238,9 +238,150 @@ class AdminStats(BaseModel):
     server_uptime: float  # seconds since app start
     wg_rx_bytes: int
     wg_tx_bytes: int
+
+
+class AdminSession(BaseModel):
+    id: int
+    peer_name: str
+    peer_id: int
+    arma_player: str | None = None
+    started_at: str
+    ended_at: str | None = None
+    duration_seconds: int | None = None
+    active: bool
+    mission: str | None = None
+    map_name: str | None = None
+    player_count: int | None = None
+    status: str | None = None
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/sessions",
+    response_model=list[AdminSession],
+    summary="List all sessions (active + history) for admin UI",
+)
+async def admin_sessions(_admin: str = Depends(_require_admin)) -> list[AdminSession]:
+    """Return active and ended sessions with peer names for admin dashboard."""
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            """
+            SELECT
+                s.id,
+                s.peer_id,
+                p.name AS peer_name,
+                s.started_at,
+                s.ended_at,
+                s.active,
+                s.mission,
+                s.player_count,
+                s.status
+            FROM sessions s
+            JOIN peers p ON p.id = s.peer_id
+            ORDER BY s.started_at DESC
+            """
+        )
+        rows = await cursor.fetchall()
+
+    now = datetime.now(tz=timezone.utc)
+    sessions: list[AdminSession] = []
+    for row in rows:
+        started_str = row["started_at"]
+        ended_str = row["ended_at"]
+        duration: int | None = None
+
+        try:
+            started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            end_dt = (
+                datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+                if ended_str else now
+            )
+            duration = max(0, int((end_dt - started_dt).total_seconds()))
+        except Exception:
+            duration = None
+
+        sessions.append(
+            AdminSession(
+                id=row["id"],
+                peer_name=row["peer_name"],
+                peer_id=row["peer_id"],
+                started_at=started_str,
+                ended_at=ended_str,
+                duration_seconds=duration,
+                active=bool(row["active"]),
+                mission=row["mission"],
+                map_name=None,
+                player_count=row["player_count"],
+                status=row["status"],
+                arma_player=None,
+            )
+        )
+
+    return sessions
+
+
+@router.get(
+    "/sessions/{session_id}",
+    response_model=AdminSession,
+    summary="Get one session by id for admin UI",
+)
+async def admin_session_by_id(
+    session_id: int,
+    _admin: str = Depends(_require_admin),
+) -> AdminSession:
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            """
+            SELECT
+                s.id,
+                s.peer_id,
+                p.name AS peer_name,
+                s.started_at,
+                s.ended_at,
+                s.active,
+                s.mission,
+                s.player_count,
+                s.status
+            FROM sessions s
+            JOIN peers p ON p.id = s.peer_id
+            WHERE s.id = ?
+            """,
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    started_str = row["started_at"]
+    ended_str = row["ended_at"]
+    duration: int | None = None
+    try:
+        started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        end_dt = (
+            datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            if ended_str else datetime.now(tz=timezone.utc)
+        )
+        duration = max(0, int((end_dt - started_dt).total_seconds()))
+    except Exception:
+        duration = None
+
+    return AdminSession(
+        id=row["id"],
+        peer_name=row["peer_name"],
+        peer_id=row["peer_id"],
+        started_at=started_str,
+        ended_at=ended_str,
+        duration_seconds=duration,
+        active=bool(row["active"]),
+        mission=row["mission"],
+        map_name=None,
+        player_count=row["player_count"],
+        status=row["status"],
+        arma_player=None,
+    )
 
 
 @router.get(
