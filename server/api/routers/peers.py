@@ -14,6 +14,7 @@ All endpoints require Admin Bearer JWT (see auth.py).
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -119,12 +120,12 @@ async def create_peer(
     async with get_connection() as conn:
         # Check name uniqueness
         cursor = await conn.execute(
-            "SELECT id FROM peers WHERE name = ? AND revoked = 0", (body.name,)
+            "SELECT id, revoked FROM peers WHERE name = ?", (body.name,)
         )
         if await cursor.fetchone():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Peer with name '{body.name}' already exists",
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Gerätename '{body.name}' ist bereits vergeben. Wähle einen anderen Namen.",
             )
 
         tunnel_ip = await _next_tunnel_ip(conn)
@@ -141,15 +142,21 @@ async def create_peer(
 
         # Insert peer into DB
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-        cursor = await conn.execute(
-            """
-            INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
-            VALUES (?, ?, ?, ?, ?, 0)
-            """,
-            (body.name, public_key, tunnel_ip, body.allowed_ips, now),
-        )
-        peer_id = cursor.lastrowid
-        await conn.commit()
+        try:
+            cursor = await conn.execute(
+                """
+                INSERT INTO peers (name, public_key, tunnel_ip, allowed_ips, created_at, revoked)
+                VALUES (?, ?, ?, ?, ?, 0)
+                """,
+                (body.name, public_key, tunnel_ip, body.allowed_ips, now),
+            )
+            peer_id = cursor.lastrowid
+            await conn.commit()
+        except sqlite3.IntegrityError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Gerätename '{body.name}' ist bereits vergeben. Wähle einen anderen Namen.",
+            )
 
         # Sync WireGuard (no downtime)
         active_peers = await _get_active_peers(conn)
@@ -326,11 +333,11 @@ async def register_peer(
     async with get_connection() as conn:
         # 1. Name uniqueness check
         cursor = await conn.execute(
-            "SELECT id FROM peers WHERE name = ? AND revoked = 0", (body.name,)
+            "SELECT id, revoked FROM peers WHERE name = ?", (body.name,)
         )
         if await cursor.fetchone():
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail=f"Peer with name \'{body.name}\' already exists",
             )
 
