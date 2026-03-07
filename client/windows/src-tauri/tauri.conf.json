@@ -24,7 +24,6 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
-      "requestedExecutionLevel": "requireAdministrator",
       "nsis": {
         "installMode": "perMachine",
         "startMenuFolder": "Arma3 Session Bridge"
