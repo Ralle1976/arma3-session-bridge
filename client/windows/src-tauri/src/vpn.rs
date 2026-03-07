@@ -196,6 +196,23 @@ pub fn install_tunnel_service(conf_path: &str) -> Result<(), String> {
         }
     }
 
+    // Stop and delete existing service to avoid "Zugriff verweigert" error
+    let tunnel_name = std::path::Path::new(conf_path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("arma3-session-bridge");
+    let service_name = format!("WireGuardTunnel${}", tunnel_name);
+
+    let _ = std::process::Command::new("sc.exe")
+        .args(["stop", &service_name])
+        .output();
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+
+    let _ = std::process::Command::new("sc.exe")
+        .args(["delete", &service_name])
+        .output();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
     let output = Command::new(wireguard_exe_path())
         .args(["/installtunnelservice", conf_path])
         .output()

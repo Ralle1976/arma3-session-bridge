@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { TrayMenu } from './components/TrayMenu'
 import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
 import { FirstRunWizard } from './components/FirstRunWizard'
+import { useTranslation } from './i18n/LanguageContext'
 import type { Session } from './components/SessionList'
 import './App.css'
 
@@ -17,48 +17,39 @@ const WG_CONF_PATH =
 const WG_TUNNEL_NAME =
   import.meta.env.VITE_WG_TUNNEL_NAME ?? 'arma3-session-bridge'
 
-// Active tab type for the main panel
 type ActiveTab = 'sessions' | 'host'
+type VpnStatus = 'connected' | 'disconnected' | 'connecting'
 
 // ─── App Component ──────────────────────────────────────────────────────────
 
 function App() {
-  const [vpnConnected, setVpnConnected] = useState(false)
+  const { lang, t, toggleLang } = useTranslation()
+  const [vpnStatus, setVpnStatus] = useState<VpnStatus>('disconnected')
   const [sessions, setSessions] = useState<Session[]>([])
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [statusMessage, setStatusMessage] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<ActiveTab>('sessions')
+  const [tab, setTab] = useState<ActiveTab>('sessions')
   // null = checking, false = missing/invalid, true = valid
   const [configValid, setConfigValid] = useState<boolean | null>(null)
+
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
-    setLoading(true)
-    setError(null)
+    setVpnStatus('connecting')
     try {
-      const msg = await invoke<string>('connect_vpn', { confPath: WG_CONF_PATH })
-      setVpnConnected(true)
-      setStatusMessage(msg)
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setLoading(false)
+      await invoke<string>('connect_vpn', { confPath: WG_CONF_PATH })
+      setVpnStatus('connected')
+    } catch {
+      setVpnStatus('disconnected')
     }
   }, [])
 
   const disconnect = useCallback(async () => {
-    setLoading(true)
-    setError(null)
     try {
-      const msg = await invoke<string>('disconnect_vpn', { tunnelName: WG_TUNNEL_NAME })
-      setVpnConnected(false)
+      await invoke<string>('disconnect_vpn', { tunnelName: WG_TUNNEL_NAME })
+      setVpnStatus('disconnected')
       setSessions([])
-      setStatusMessage(msg)
-    } catch (e) {
-      setError(String(e))
-    } finally {
-      setLoading(false)
+    } catch {
+      // keep current status
     }
   }, [])
 
@@ -67,31 +58,36 @@ function App() {
       const status = await invoke<{ connected: boolean; tunnel_ip: string | null }>('check_vpn_status', {
         tunnelName: WG_TUNNEL_NAME,
       })
-      setVpnConnected(status.connected)
-    } catch (e) {
-      setError(String(e))
+      setVpnStatus(status.connected ? 'connected' : 'disconnected')
+    } catch {
+      // ignore
     }
   }, [])
 
   const refreshSessions = useCallback(async () => {
-    if (!vpnConnected) return
+    if (vpnStatus !== 'connected') return
     setLoading(true)
-    setError(null)
     try {
-      // get_sessions uses hardcoded API_BASE_URL on the Rust side
       const data = await invoke<Session[]>('get_sessions')
       setSessions(data)
-    } catch (e) {
-      setError(String(e))
+    } catch {
+      // ignore
     } finally {
       setLoading(false)
     }
-  }, [vpnConnected])
+  }, [vpnStatus])
+
+  const handleVpnToggle = () => {
+    if (vpnStatus === 'connected') {
+      disconnect()
+    } else if (vpnStatus === 'disconnected') {
+      connect()
+    }
+  }
 
   // ── Lifecycle ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Check config validity on startup before doing anything else
     invoke<boolean>('validate_conf', { path: WG_CONF_PATH })
       .then((valid) => setConfigValid(valid))
       .catch(() => setConfigValid(false))
@@ -104,13 +100,11 @@ function App() {
     const unlisten_connect = listen('tray-connect', () => connect())
     const unlisten_disconnect = listen('tray-disconnect', () => disconnect())
 
-    // Auto-reconnect events from background Rust task
-    const unlisten_reconnected = listen<string>('vpn-reconnected', (event) => {
-      setVpnConnected(true)
-      setStatusMessage(`VPN auto-reconnected — Tunnel IP: ${event.payload}`)
+    const unlisten_reconnected = listen<string>('vpn-reconnected', () => {
+      setVpnStatus('connected')
     })
-    const unlisten_reconnect_failed = listen<string>('vpn-reconnect-failed', (event) => {
-      setError(`VPN auto-reconnect failed: ${event.payload}`)
+    const unlisten_reconnect_failed = listen<string>('vpn-reconnect-failed', () => {
+      setVpnStatus('disconnected')
     })
 
     const interval = setInterval(checkStatus, 30_000)
@@ -125,23 +119,21 @@ function App() {
   }, [configValid, checkStatus, connect, disconnect])
 
   useEffect(() => {
-    if (vpnConnected) {
+    if (vpnStatus === 'connected') {
       refreshSessions()
     }
-  }, [vpnConnected, refreshSessions])
+  }, [vpnStatus, refreshSessions])
 
   // ── Render ──────────────────────────────────────────────────────────
 
-  // Loading state while we check config
   if (configValid === null) {
     return (
-      <div className="app app--loading">
-        <p>Checking configuration…</p>
+      <div className="app-shell" style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <p style={{ color: 'var(--text-secondary)' }}>Checking configuration…</p>
       </div>
     )
   }
 
-  // First-run wizard when no valid config exists
   if (configValid === false) {
     return (
       <FirstRunWizard
@@ -151,88 +143,71 @@ function App() {
     )
   }
 
+  const vpnLabel =
+    vpnStatus === 'connected' ? t.vpnConnected :
+    vpnStatus === 'connecting' ? t.vpnConnecting :
+    t.vpnDisconnected
+
   return (
-    <div className="app">
-      {/* Header */}
-      <header className="app-header">
-        <h1>Arma 3 Session Bridge</h1>
-        <div className={`vpn-badge ${vpnConnected ? 'connected' : 'disconnected'}`}>
-          <span className="vpn-dot" />
-          {vpnConnected ? 'VPN Connected' : 'VPN Disconnected'}
+    <div className="app-shell">
+      {/* Titlebar */}
+      <div className="titlebar">
+        <div className="titlebar-left">
+          <div className="titlebar-logo">🎮</div>
+          <div>
+            <div className="titlebar-title">{t.appTitle}</div>
+          </div>
         </div>
-      </header>
+        <div className="titlebar-right">
+          <button className="lang-toggle" onClick={toggleLang}>
+            {lang === 'de' ? 'EN' : 'DE'}
+          </button>
+          <button
+            className={`vpn-badge ${vpnStatus}`}
+            onClick={handleVpnToggle}
+            disabled={vpnStatus === 'connecting'}
+          >
+            <span className="vpn-dot" />
+            {vpnLabel}
+          </button>
+        </div>
+      </div>
 
-      {/* Tray Menu Mirror */}
-      <TrayMenu
-        isConnected={vpnConnected}
-        onConnect={connect}
-        onDisconnect={disconnect}
-        onQuit={() => invoke('plugin:window|close')}
-      />
-
-      {/* Status messages */}
-      {statusMessage && (
-        <div className="status-message success">{statusMessage}</div>
-      )}
-      {error && <div className="status-message error">{error}</div>}
-
-      {/* VPN Controls */}
-      <section className="controls">
+      {/* Tabs */}
+      <div className="tabs">
         <button
-          className="btn btn-primary"
-          onClick={connect}
-          disabled={loading || vpnConnected}
+          className={`tab-btn ${tab === 'sessions' ? 'active' : ''}`}
+          onClick={() => setTab('sessions')}
         >
-          Connect VPN
+          {t.tabSessions}
         </button>
         <button
-          className="btn btn-danger"
-          onClick={disconnect}
-          disabled={loading || !vpnConnected}
+          className={`tab-btn ${tab === 'host' ? 'active' : ''}`}
+          onClick={() => setTab('host')}
         >
-          Disconnect VPN
+          {t.tabHost}
         </button>
-        <button className="btn" onClick={checkStatus} disabled={loading}>
-          Check Status
-        </button>
-      </section>
+      </div>
 
-      {/* Tab navigation */}
-      <nav className="tab-nav">
-        <button
-          className={`tab-btn ${activeTab === 'sessions' ? 'active' : ''}`}
-          onClick={() => setActiveTab('sessions')}
-        >
-          🌍 Browse Sessions
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'host' ? 'active' : ''}`}
-          onClick={() => setActiveTab('host')}
-        >
-          🚀 Host Session
-        </button>
-      </nav>
-
-      {/* Tab panels */}
-      {activeTab === 'sessions' && (
-        <SessionList
-          sessions={sessions}
-          vpnConnected={vpnConnected}
-          onRefresh={refreshSessions}
-          loading={loading}
-        />
-      )}
-
-      {activeTab === 'host' && (
-        <HostSessionForm
-          vpnConnected={vpnConnected}
-          onSessionCreated={(session) => {
-            setSessions((prev) => [session, ...prev])
-            setActiveTab('sessions')
-            setStatusMessage(`Hosting: ${session.mission_name} — share IP ${session.host_tunnel_ip} with players`)
-          }}
-        />
-      )}
+      {/* Content */}
+      <div className="tab-content">
+        {tab === 'sessions' ? (
+          <SessionList
+            sessions={sessions}
+            vpnConnected={vpnStatus === 'connected'}
+            onRefresh={refreshSessions}
+            loading={loading}
+          />
+        ) : (
+          <HostSessionForm
+            vpnConnected={vpnStatus === 'connected'}
+            onSessionCreated={(session) => {
+              setSessions((prev) => [session, ...prev])
+              setTab('sessions')
+            }}
+          />
+        )}
+      </div>
     </div>
   )
 }

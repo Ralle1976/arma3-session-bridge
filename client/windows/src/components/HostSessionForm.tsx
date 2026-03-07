@@ -1,24 +1,15 @@
 /// HostSessionForm.tsx — Create a new hosted Arma 3 session
-///
-/// Calls the `host_session` Tauri command which:
-///   1. POSTs { mission_name, max_players } to the bridge API
-///   2. Returns the created Session (including host_tunnel_ip)
-///   3. Starts the auto-heartbeat (Rust side, every 60 s)
-///
-/// After hosting, the host must distribute their tunnel IP to players
-/// so they can join in ArmA 3 multiplayer.
 
 import type { FC } from 'react'
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useTranslation } from '../i18n/LanguageContext'
 import type { Session } from './SessionList'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface HostSessionFormProps {
-  /** Whether VPN is connected (required to host) */
   vpnConnected: boolean
-  /** Called when a session is successfully created */
   onSessionCreated: (session: Session) => void
 }
 
@@ -28,6 +19,7 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
   vpnConnected,
   onSessionCreated,
 }) => {
+  const { t } = useTranslation()
   const [missionName, setMissionName] = useState('')
   const [maxPlayers, setMaxPlayers] = useState(8)
   const [loading, setLoading] = useState(false)
@@ -65,69 +57,49 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
 
   if (!vpnConnected) {
     return (
-      <section className="host-session-section">
-        <h2>Host Session</h2>
-        <p className="hint">⚠ Connect to VPN first to host a session.</p>
-      </section>
+      <div className="empty-state">
+        <div className="empty-state-icon">🔒</div>
+        <div>{t.btnVpnConnect}</div>
+      </div>
     )
   }
 
-  // ── After session is hosted ────────────────────────────────────────────────
+  // ── Active hosted session ──────────────────────────────────────────────────
 
   if (hosted) {
     return (
-      <section className="host-session-section">
-        <h2>Session Active</h2>
-        <div className="hosted-session-card">
-          <div className="hosted-row">
-            <span className="hosted-label">Mission:</span>
-            <strong>{hosted.mission_name}</strong>
-          </div>
-          <div className="hosted-row">
-            <span className="hosted-label">Your tunnel IP:</span>
-            <code className="ip-code">{hosted.host_tunnel_ip}</code>
+      <div>
+        <div className="session-active-banner">
+          <span className="session-active-text">🟢 {t.sessionActive}: {hosted.mission_name}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <code style={{ color: 'var(--green)', fontSize: 13 }}>{hosted.host_tunnel_ip}</code>
             <button
-              className="btn btn-xs"
+              className="btn btn-sm btn-secondary"
               onClick={() => navigator.clipboard.writeText(hosted.host_tunnel_ip)}
-              title="Copy IP to clipboard"
             >
-              📋 Copy
+              📋
+            </button>
+            <button className="btn btn-danger btn-sm" onClick={handleReset}>
+              {t.btnStopSession}
             </button>
           </div>
-          <div className="hosted-row">
-            <span className="hosted-label">Max players:</span>
-            <span>{hosted.max_players}</span>
-          </div>
-          <div className="hosted-row">
-            <span className="hosted-label">Status:</span>
-            <span className={`status-badge ${hosted.status}`}>{hosted.status}</span>
-          </div>
-          <p className="hosted-hint">
-            Share your tunnel IP with players — they enter it in ArmA 3 Multiplayer → Direct Connect.
-            <br />
-            Heartbeat is sent automatically every 60 s to keep the session alive.
-          </p>
-          <button className="btn btn-danger" onClick={handleReset}>
-            Stop Hosting
-          </button>
         </div>
-      </section>
+      </div>
     )
   }
 
   // ── Host form ──────────────────────────────────────────────────────────────
 
   return (
-    <section className="host-session-section">
-      <h2>Host Session</h2>
+    <div>
+      <div className="section-title" style={{ marginBottom: 16 }}>{t.hostTitle}</div>
 
-      {error && <div className="status-message error">{error}</div>}
+      {error && <div className="wizard-error" style={{ marginBottom: 14 }}>{error}</div>}
 
-      <form className="host-form" onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit}>
         <div className="form-group">
-          <label htmlFor="mission-name">Mission Name</label>
+          <label className="form-label">{t.labelMissionName}</label>
           <input
-            id="mission-name"
             type="text"
             className="form-input"
             placeholder="e.g. Operation Arrowhead"
@@ -140,11 +112,11 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
         </div>
 
         <div className="form-group">
-          <label htmlFor="max-players">Max Players</label>
+          <label className="form-label">{t.labelMaxPlayers}</label>
           <input
-            id="max-players"
             type="number"
-            className="form-input form-input-sm"
+            className="form-input"
+            style={{ maxWidth: 120 }}
             min={2}
             max={64}
             value={maxPlayers}
@@ -158,10 +130,10 @@ export const HostSessionForm: FC<HostSessionFormProps> = ({
           className="btn btn-primary"
           disabled={loading || !missionName.trim()}
         >
-          {loading ? 'Creating session…' : '🚀 Host Session'}
+          {loading ? '⏳ ...' : t.btnStartSession}
         </button>
       </form>
-    </section>
+    </div>
   )
 }
 

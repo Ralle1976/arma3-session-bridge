@@ -1,12 +1,9 @@
 /// SessionList.tsx — Browse & join active Arma 3 sessions
-///
-/// Displays sessions fetched from GET /sessions and lets the user click
-/// "Join" to retrieve the host tunnel IP via the `join_session` Tauri command.
-/// The returned IP is shown in ArmA 3 as the multiplayer server address.
 
 import type { FC } from 'react'
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { useTranslation } from '../i18n/LanguageContext'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -20,13 +17,9 @@ export interface Session {
 }
 
 interface SessionListProps {
-  /** Sessions to display */
   sessions: Session[]
-  /** Whether VPN is connected (required to join) */
   vpnConnected: boolean
-  /** Called when user triggers a refresh */
   onRefresh: () => void
-  /** Whether a refresh is in progress */
   loading: boolean
 }
 
@@ -38,9 +31,10 @@ export const SessionList: FC<SessionListProps> = ({
   onRefresh,
   loading,
 }) => {
+  const { t } = useTranslation()
   const [joinResult, setJoinResult] = useState<{ sessionId: string; ip: string } | null>(null)
   const [joinError, setJoinError] = useState<string | null>(null)
-  const [joining, setJoining] = useState<string | null>(null) // session ID being joined
+  const [joining, setJoining] = useState<string | null>(null)
 
   const handleJoin = async (sessionId: string) => {
     setJoining(sessionId)
@@ -59,88 +53,64 @@ export const SessionList: FC<SessionListProps> = ({
   const activeSessions = sessions.filter((s) => s.status === 'active' || s.status === 'waiting')
 
   return (
-    <section className="session-list-section">
-      <div className="section-header">
-        <h2>Active Sessions ({activeSessions.length})</h2>
+    <div>
+      <div className="session-header">
+        <span className="section-title">{t.tabSessions} ({activeSessions.length})</span>
         <button
-          className="btn btn-sm"
+          className="btn btn-secondary btn-sm"
           onClick={onRefresh}
           disabled={loading || !vpnConnected}
-          title="Refresh session list"
         >
-          {loading ? '⟳ Loading…' : '⟳ Refresh'}
+          {loading ? '⟳' : t.btnRefresh}
         </button>
       </div>
 
-      {/* Join result banner */}
+      {/* Join result */}
       {joinResult && (
-        <div className="status-message success">
-          <strong>Join ready!</strong> Connect ArmA 3 to:{' '}
-          <code className="ip-code">{joinResult.ip}</code>
-          <button
-            className="btn btn-xs"
-            onClick={() => navigator.clipboard.writeText(joinResult.ip)}
-            title="Copy IP to clipboard"
-          >
-            📋 Copy
+        <div style={{ background: 'var(--green-dim)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 12, color: 'var(--green)', fontSize: 13 }}>
+          ✓ IP: <code>{joinResult.ip}</code>{' '}
+          <button className="btn btn-sm btn-secondary" onClick={() => navigator.clipboard.writeText(joinResult.ip)}>
+            📋
           </button>
         </div>
       )}
 
       {/* Join error */}
       {joinError && (
-        <div className="status-message error">{joinError}</div>
+        <div className="wizard-error" style={{ marginBottom: 12 }}>{joinError}</div>
       )}
 
-      {/* Gate: VPN required */}
       {!vpnConnected ? (
-        <p className="hint">⚠ Connect to VPN first to browse sessions.</p>
+        <div className="empty-state">
+          <div className="empty-state-icon">🔒</div>
+          <div>{t.btnVpnConnect}</div>
+        </div>
       ) : activeSessions.length === 0 ? (
-        <p className="hint">No active sessions found. Click Refresh or host one!</p>
+        <div className="empty-state">
+          <div className="empty-state-icon">🎮</div>
+          <div>{t.noSessions}</div>
+        </div>
       ) : (
-        <ul className="session-list">
-          {activeSessions.map((session) => (
-            <li key={session.id} className={`session-item ${session.status}`}>
-              {/* Mission info */}
-              <div className="session-info">
-                <span className="session-mission">{session.mission_name}</span>
-                <span className="session-status">
-                  <span className={`status-dot ${session.status}`} />
-                  {session.status}
-                </span>
+        activeSessions.map((session) => (
+          <div key={session.id} className="session-card">
+            <div className="session-card-info">
+              <div className="session-card-name">{session.mission_name}</div>
+              <div className="session-card-meta">
+                {t.labelPlayers}: {session.current_players}/{session.max_players} &nbsp;·&nbsp;
+                {session.host_tunnel_ip || '—'}
               </div>
-
-              {/* Player count */}
-              <div className="session-meta">
-                <span className="session-players">
-                  👥 {session.current_players} / {session.max_players}
-                </span>
-                <span className="session-ip" title="Host tunnel IP (visible after join)">
-                  🌐 {session.host_tunnel_ip || '—'}
-                </span>
-              </div>
-
-              {/* Join action */}
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={() => handleJoin(session.id)}
-                disabled={
-                  joining === session.id ||
-                  session.current_players >= session.max_players
-                }
-                title={
-                  session.current_players >= session.max_players
-                    ? 'Session is full'
-                    : `Get host IP to join ${session.mission_name}`
-                }
-              >
-                {joining === session.id ? 'Getting IP…' : 'Join →'}
-              </button>
-            </li>
-          ))}
-        </ul>
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => handleJoin(session.id)}
+              disabled={joining === session.id || session.current_players >= session.max_players}
+            >
+              {joining === session.id ? '...' : t.btnJoin}
+            </button>
+          </div>
+        ))
       )}
-    </section>
+    </div>
   )
 }
 
