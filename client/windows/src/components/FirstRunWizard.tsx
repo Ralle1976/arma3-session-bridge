@@ -3,7 +3,7 @@
 /// Shown when no valid WireGuard .conf is found on startup.
 ///
 /// Steps:
-///   1. Enter Bridge API URL + Admin Password
+///   1. Bridge API URL + Registrierungs-Code (vom Admin, nicht das Admin-PW!)
 ///   2. Enter Peer Name → App generates WireGuard keypair locally & registers
 
 import { useState } from 'react'
@@ -27,12 +27,12 @@ const DEFAULT_API_URL = 'https://your-server.example.com/api'
 export function FirstRunWizard({ confPath, onComplete }: Props) {
   const [step, setStep] = useState<Step>(1)
   const [apiUrl, setApiUrl] = useState(DEFAULT_API_URL)
-  const [adminPassword, setAdminPassword] = useState('')
+  const [registrationCode, setRegistrationCode] = useState('')
   const [peerId, setPeerId] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // ── Step 2: Login + Generate Keypair + Register + Validate ───────────────
+  // ── Registrieren: Keypair generieren + Server-Registrierung + Conf schreiben ──
 
   const handleRegister = async () => {
     setLoading(true)
@@ -40,36 +40,19 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
     try {
       const base = apiUrl.trim().replace(/\/$/, '')
 
-      // Step A: Login to get admin JWT
-      const loginRes = await fetch(`${base}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: adminPassword }),
-      })
-      if (!loginRes.ok) {
-        setError(`Login failed (HTTP ${loginRes.status}): wrong admin password?`)
-        return
-      }
-      const loginData = await loginRes.json() as { access_token: string }
-      const token = loginData.access_token
-
-      // Step B: Generate keypair locally + register + write conf
+      // Keypair lokal generieren + beim Server registrieren + conf schreiben.
+      // Kein fetch() — alles über Tauri-Command (kein CSP-Problem).
       await invoke('generate_and_register_peer', {
         apiUrl: base,
         peerName: peerId.trim(),
         savePath: confPath,
-        token,
+        registrationCode: registrationCode.trim(),
       })
 
       // Step C: Validate: must have [Interface] + AllowedIPs = 10.8.0.0/24
       const valid = await invoke<boolean>('validate_conf', { path: confPath })
       if (!valid) {
-        setError(
-          'Generated config is invalid. ' +
-            'It must contain [Interface] and AllowedIPs = 10.8.0.0/24.',
-        )
-        return
-      }
+        setError('Generierte Config ist ungültig. Admin kontaktieren.')
 
       onComplete()
     } catch (e) {
@@ -86,9 +69,9 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
       <div className="wizard-card">
         {/* Title */}
         <div className="wizard-header">
-          <h2>🚀 First Run Setup</h2>
+          <h2>🚀 Ersteinrichtung</h2>
           <p className="wizard-subtitle">
-            No WireGuard config found. Let's set up your connection.
+            Keine VPN-Konfiguration gefunden. Lass uns deine Verbindung einrichten.
           </p>
         </div>
 
@@ -96,19 +79,19 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
         <div className="wizard-steps">
           <div className={`wizard-step-dot ${step >= 1 ? 'done' : ''} ${step === 1 ? 'current' : ''}`}>
             <span>1</span>
-            <label>API + Password</label>
+            <label>URL &amp; Code</label>
           </div>
           <div className="wizard-step-line" />
           <div className={`wizard-step-dot ${step >= 2 ? 'done' : ''} ${step === 2 ? 'current' : ''}`}>
             <span>2</span>
-            <label>Register</label>
+            <label>Registrieren</label>
           </div>
         </div>
 
         {/* Error */}
         {error && <div className="wizard-error">⚠ {error}</div>}
 
-        {/* ── Step 1: API URL + Admin Password ─────────────────────────────── */}
+        {/* ── Step 1: API URL + Registrierungs-Code ─────────────────────────── */}
         {step === 1 && (
           <div className="wizard-panel">
             <label className="wizard-label" htmlFor="wizard-api-url">
@@ -123,19 +106,20 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               placeholder="https://your-server.example.com/api"
               autoFocus
             />
-            <label className="wizard-label" htmlFor="wizard-admin-pw" style={{ marginTop: '12px' }}>
-              Admin Password
+            <label className="wizard-label" htmlFor="wizard-reg-code" style={{ marginTop: '12px' }}>
+              Registrierungs-Code
             </label>
             <input
-              id="wizard-admin-pw"
+              id="wizard-reg-code"
               className="wizard-input"
               type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Enter admin password"
+              value={registrationCode}
+              onChange={(e) => setRegistrationCode(e.target.value)}
+              placeholder="Code vom Admin"
             />
             <p className="wizard-hint">
-              The admin password is used to authenticate and register your peer automatically.
+              Den Code bekommst du vom Admin (z.B. per Discord).
+              Das ist <strong>nicht</strong> das Admin-Passwort — nur zum Registrieren.
             </p>
             <div className="wizard-actions">
               <button
@@ -144,9 +128,9 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
                   setError(null)
                   setStep(2)
                 }}
-                disabled={!apiUrl.trim() || !adminPassword.trim()}
+                disabled={!apiUrl.trim() || !registrationCode.trim()}
               >
-                Next →
+                Weiter →
               </button>
             </div>
           </div>
@@ -156,7 +140,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
         {step === 2 && (
           <div className="wizard-panel">
             <label className="wizard-label" htmlFor="wizard-peer-id">
-              Your Peer Name
+              Dein Peer-Name
             </label>
             <input
               id="wizard-peer-id"
@@ -164,7 +148,7 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
               type="text"
               value={peerId}
               onChange={(e) => setPeerId(e.target.value)}
-              placeholder="e.g. ralle-arma3"
+              placeholder="z.B. ralle-arma3"
               autoFocus
             />
             <p className="wizard-hint">
@@ -177,14 +161,14 @@ export function FirstRunWizard({ confPath, onComplete }: Props) {
                 onClick={() => { setError(null); setStep(1) }}
                 disabled={loading}
               >
-                ← Back
+                ← Zurück
               </button>
               <button
                 className="btn btn-primary"
                 onClick={handleRegister}
                 disabled={!peerId.trim() || loading}
               >
-                {loading ? '⏳ Registriere & lade Config...' : '✅ Register & Connect'}
+                {loading ? '⏳ Registriere...' : '✅ Registrieren & Verbinden'}
               </button>
             </div>
           </div>

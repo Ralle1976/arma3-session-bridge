@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
@@ -99,3 +99,46 @@ async def get_admin_user(
         )
 
     return payload
+
+
+
+# ---------------------------------------------------------------------------
+# Peer-Registration Auth (separate from admin — limited scope)
+# ---------------------------------------------------------------------------
+
+
+async def get_peer_registrar(
+    credentials: Annotated[
+        HTTPAuthorizationCredentials | None,
+        Depends(HTTPBearer(auto_error=False)),
+    ] = None,
+    x_registration_code: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency: accepts either an admin JWT **or** the
+    X-Registration-Code header (value = PEER_REGISTRATION_CODE env var).
+
+    Regular players use the registration code — they never need the admin
+    password.  This dependency grants NO admin privileges whatsoever.
+
+    Raises:
+        HTTP 401: if neither credential is valid.
+    """
+    # Path 1: X-Registration-Code header
+    reg_code = os.getenv("PEER_REGISTRATION_CODE", "")
+    if x_registration_code and reg_code and x_registration_code == reg_code:
+        return  # authorised via registration code
+
+    # Path 2: fall back to admin JWT
+    if credentials is not None:
+        try:
+            payload = _decode_token(credentials.credentials)
+            if payload.get("role") == "admin":
+                return  # authorised via admin JWT
+        except HTTPException:
+            pass
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Ungültiger Registrierungs-Code. Bitte den Code vom Admin erfragen.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )

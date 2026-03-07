@@ -1,61 +1,116 @@
-name: Initialize Wiki Pages
+name: Init wiki bootstrap
 
-# Trigger manually via GitHub Actions UI or API
 on:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
-  push-wiki:
+  init-wiki:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo (with wiki source files)
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Git
+      - name: Bootstrap wiki page via REST API
         run: |
-          git config --global user.name "YourGitHubUser"
-          git config --global user.email "ralf.arnold@it-bfw.de"
+          set -euo pipefail
+          REPO="YourGitHubUser/arma3-session-bridge"
+          API_URL="https://api.github.com/repos/${REPO}/wiki/pages"
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          curl -sS -X POST -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+            -d '{"title":"Home","content":"# Arma 3 Session Bridge Wiki\n\nBootstrap: initial wiki bootstrap"}' \
+            "$API_URL" >/dev/null || true
+          echo "Waiting for wiki repo to be created..."
+          sleep 15
 
-      - name: Bootstrap wiki if needed, then push pages
+      - name: Clone wiki repo with retry
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
         run: |
-          set -e
-          WIKI_URL="https://x-access-token:$GH_TOKEN@github.com/$REPO.wiki.git"
+          set -euo pipefail
+          REPO="YourGitHubUser/arma3-session-bridge"
+          WIKI_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git"
+          for i in $(seq 1 5); do
+            if git clone "$WIKI_REMOTE" wiki-repo; then
+              echo "Wiki repo cloned successfully."
+              break
+            else
+              echo "Attempt ${i}/5: Wiki clone failed."
+              if [ "$i" -eq 5 ]; then
+                echo "ERROR: Failed to clone wiki after 5 attempts. Exiting."
+                exit 1
+              fi
+              sleep 10
+            fi
+          done
 
-          if git clone "$WIKI_URL" wiki-repo 2>/dev/null; then
-            echo "Cloned existing wiki"
-          else
-            echo "Bootstrapping wiki with force-push..."
-            mkdir wiki-repo && cd wiki-repo
-            git init && git checkout -b master
-            echo "# Arma 3 Session Bridge Wiki" > Home.md
-            git add Home.md
-            git commit -m "init: bootstrap wiki"
-            git remote add origin "$WIKI_URL"
-            git push --force origin master
-            cd .. && sleep 8
-            rm -rf wiki-repo
-            git clone "$WIKI_URL" wiki-repo
-          fi
-
-          cp wiki/Home.md            wiki-repo/Home.md
-          cp wiki/Installation.md    wiki-repo/Installation.md
-          cp wiki/Installation-DE.md wiki-repo/Installation-DE.md
-          cp wiki/Configuration.md   wiki-repo/Configuration.md
-          cp wiki/Configuration-DE.md wiki-repo/Configuration-DE.md
-          cp wiki/Troubleshooting.md wiki-repo/Troubleshooting.md
-          cp wiki/Troubleshooting-DE.md wiki-repo/Troubleshooting-DE.md
-          cp wiki/FAQ.md             wiki-repo/FAQ.md
-          cp wiki/FAQ-DE.md          wiki-repo/FAQ-DE.md
-
+      - name: Write wiki pages
+        run: |
+          set -euo pipefail
           cd wiki-repo
+          git config user.name "YourGitHubUser"
+          git config user.email "ralf.arnold@it-bfw.de"
+
+          cat > Home.md << 'HOME'
+# Home
+Arma 3 Session Bridge Wiki
+
+Overview of the project architecture, stack, and core components.
+
+Architecture
+- VPN-based session management
+- Client/server separation
+- Dockerized services
+
+Stack
+- Backend: PHP/Laravel (server)
+- API gateway and orchestration tools
+HOME
+
+          cat > Installation.md << 'INSTALL'
+# Installation
+English server and client install guide for Arma 3 Session Bridge.
+Follow these steps to bootstrap the server and client components.
+INSTALL
+
+          cat > Installation-DE.md << 'INSTALLDE'
+# Installation (DE)
+Deutscher Installationsleitfaden für Arma 3 Session Bridge.
+INSTALLDE
+
+          cat > Configuration.md << 'CONF'
+# Configuration
+Environment variables, docker services, authentication, and network topology.
+CONF
+
+          cat > Configuration-DE.md << 'CONFDE'
+# Configuration (DE)
+Deutscher Konfigurationsleitfaden.
+CONFDE
+
+          cat > Troubleshooting.md << 'TROUBLE'
+# Troubleshooting
+EN: VPN/session/Arma3 issues, server logs, and common failure modes.
+TROUBLE
+
+          cat > Troubleshooting-DE.md << 'TROUBLEDE'
+# Troubleshooting (DE)
+Deutscher Troubleshooting-Guide.
+TROUBLEDE
+
+          cat > FAQ.md << 'FAQ'
+# FAQ
+Q: How to bootstrap the wiki?
+A: See Home page and wiki bootstrap steps in this repository.
+FAQ
+
+          cat > FAQ-DE.md << 'FAQDE'
+# FAQ (DE)
+Fragen & Antworten auf Deutsch.
+FAQDE
+
           git add -A
-          git diff --cached --stat
-          git commit -m "docs: sync wiki pages (Home, Installation, Configuration, Troubleshooting, FAQ — DE+EN)" || echo "Nothing to commit"
-          git push "$WIKI_URL" HEAD:master
-          echo "Done!"
+          git commit -m "docs: add wiki pages (Home, Installation, Configuration, Troubleshooting, FAQ) EN/DE"
+          git push origin master || git push origin main
+
+      - name: Final status
+        run: echo "Wiki bootstrap flow completed."

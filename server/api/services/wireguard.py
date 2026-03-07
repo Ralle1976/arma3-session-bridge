@@ -7,7 +7,6 @@ Responsibilities:
   - get_peer_status()    → parse `wg show wg0` output
 """
 
-import base64
 import os
 import subprocess
 import tempfile
@@ -21,33 +20,30 @@ WG_SERVER_TUNNEL_IP = "10.8.0.1"
 
 
 def generate_keypair() -> tuple[str, str]:
-    """Generate a WireGuard keypair using Python cryptography (Curve25519/X25519).
+    """Generate a WireGuard keypair by invoking the wg binary inside the Docker container.
 
-    Does NOT require the wg CLI — keys are generated in-process using the
-    same cryptography library already used for JWT signing.
-
-    Returns:
-        (private_key, public_key) as base64 strings — WireGuard-compatible format.
-
-    Raises:
-        RuntimeError: if key generation fails.
+    This avoids relying on wg being installed in the API container itself and mirrors
+    the approach used by sync_wireguard() which operates via the container.
     """
     try:
-        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-        from cryptography.hazmat.primitives.serialization import (
-            Encoding, NoEncryption, PrivateFormat, PublicFormat,
+        private_result = subprocess.run(
+            ["docker", "exec", WG_CONTAINER, "wg", "genkey"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         )
-        priv_obj = X25519PrivateKey.generate()
-        priv_bytes = priv_obj.private_bytes(
-            encoding=Encoding.Raw,
-            format=PrivateFormat.Raw,
-            encryption_algorithm=NoEncryption(),
+        private_key = private_result.stdout.strip()
+        public_result = subprocess.run(
+            ["docker", "exec", WG_CONTAINER, "wg", "pubkey"],
+            input=private_key,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
         )
-        pub_bytes = priv_obj.public_key().public_bytes(
-            encoding=Encoding.Raw,
-            format=PublicFormat.Raw,
-        )
-        return base64.b64encode(priv_bytes).decode(), base64.b64encode(pub_bytes).decode()
+        public_key = public_result.stdout.strip()
+        return private_key, public_key
     except Exception as exc:
         raise RuntimeError(f"WireGuard keypair generation failed: {exc}") from exc
 
@@ -112,7 +108,9 @@ def sync_wireguard(peers: list[dict]) -> None:
     try:
         cp_result = subprocess.run(
             ["docker", "cp", tmp_path, f"{WG_CONTAINER}:/tmp/wg0sync.conf"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if cp_result.returncode != 0:
             raise RuntimeError(
@@ -120,8 +118,18 @@ def sync_wireguard(peers: list[dict]) -> None:
             )
 
         sync_result = subprocess.run(
-            ["docker", "exec", WG_CONTAINER, "wg", "syncconf", "wg0", "/tmp/wg0sync.conf"],
-            capture_output=True, text=True, timeout=15,
+            [
+                "docker",
+                "exec",
+                WG_CONTAINER,
+                "wg",
+                "syncconf",
+                "wg0",
+                "/tmp/wg0sync.conf",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if sync_result.returncode != 0:
             raise RuntimeError(
@@ -130,9 +138,11 @@ def sync_wireguard(peers: list[dict]) -> None:
     finally:
         try:
             import os as _os
+
             _os.unlink(tmp_path)
         except OSError:
             pass
+
 
 def get_peer_status() -> dict[str, dict]:
     """Parse `docker exec wg show wg0` output into a dict keyed by public key.

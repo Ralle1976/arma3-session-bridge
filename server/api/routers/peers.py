@@ -20,7 +20,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse
 
-from auth import get_admin_user
+from auth import get_admin_user, get_peer_registrar
 from database import get_connection
 from models import PeerCreate, PeerCreateResponse, PeerResponse, PeerRegisterRequest
 from services.wireguard import (
@@ -312,7 +312,7 @@ async def revoke_peer(
 )
 async def register_peer(
     body: PeerRegisterRequest,
-    _admin: Annotated[dict, Depends(get_admin_user)],
+    _auth: Annotated[None, Depends(get_peer_registrar)],
 ) -> PlainTextResponse:
     """Self-service registration:
     1. Validates name uniqueness
