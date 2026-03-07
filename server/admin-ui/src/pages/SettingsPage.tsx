@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getSettings, updateSettings } from '../api/settings';
+import { getSettings, updateSettings, getVpnMode, setVpnMode } from '../api/settings';
 
 const RELEASE_URL = 'https://github.com/Ralle1976/arma3-session-bridge/releases/latest';
 
@@ -14,6 +14,9 @@ export default function SettingsPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [copied, setCopied] = useState('');
+  const [vpnMode, setVpnModeState] = useState('arma3');
+  const [vpnModeSaving, setVpnModeSaving] = useState(false);
+  const [vpnModeMsg, setVpnModeMsg] = useState('');
 
   useEffect(() => { loadSettings(); }, []);
 
@@ -22,6 +25,8 @@ export default function SettingsPage() {
       const data = await getSettings();
       setCode(data.registration_code);
       setServerUrl(data.server_url);
+      const modeData = await getVpnMode();
+      setVpnModeState(modeData.mode);
     } catch {
       setError('Fehler beim Laden der Einstellungen');
     } finally {
@@ -40,6 +45,17 @@ export default function SettingsPage() {
     } catch (e: any) {
       setError(e.response?.data?.detail || 'Fehler beim Speichern');
     } finally { setSaving(false); }
+  }
+
+  async function handleVpnMode(mode: string) {
+    setVpnModeSaving(true); setVpnModeMsg('');
+    try {
+      const result = await setVpnMode(mode);
+      setVpnModeState(result.mode);
+      setVpnModeMsg(mode === 'arma3' ? '✅ Arma 3 Modus aktiv' : '✅ Offener Modus aktiv');
+      setTimeout(() => setVpnModeMsg(''), 3000);
+    } catch { setVpnModeMsg('❌ Fehler beim Umschalten'); }
+    finally { setVpnModeSaving(false); }
   }
 
   function buildInviteText() {
@@ -187,6 +203,33 @@ Bei Problemen einfach melden.`;
             </button>
           </div>
         </div>
+
+      {/* VPN-Modus Card */}
+      <div style={s.card}>
+        <h2 style={s.h2}>🔥 VPN-Modus</h2>
+        <p style={s.desc}>
+          Steuert welcher Traffic zwischen verbundenen Spielern erlaubt ist.
+          Standard: nur Arma 3 (empfohlen). Offen: alle Ports — für andere Nutzung.
+        </p>
+        <div style={s.modeRow}>
+          <button
+            style={{ ...s.modeBtn, ...(vpnMode === 'arma3' ? s.modeBtnActive : {}) }}
+            onClick={() => handleVpnMode('arma3')}
+            disabled={vpnModeSaving}
+          >
+            🎮 Arma 3 only
+            <small style={s.modeHint}>UDP 2302-2305 + BattlEye</small>
+          </button>
+          <button
+            style={{ ...s.modeBtn, ...(vpnMode === 'open' ? s.modeBtnActive : {}) }}
+            onClick={() => handleVpnMode('open')}
+            disabled={vpnModeSaving}
+          >
+            🔓 Offen
+            <small style={s.modeHint}>Alle Ports zwischen Peers</small>
+          </button>
+        </div>
+        {vpnModeMsg && <div style={s.alertSuccess}>{vpnModeMsg}</div>}
       </div>
     </div>
   );
@@ -217,4 +260,8 @@ const s: Record<string, React.CSSProperties> = {
   btnGhost:     { background: 'transparent', color: '#8b92a9', border: '1px solid #2a2d3e', borderRadius: 6, padding: '0.25rem 0.6rem', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap' },
   alertSuccess: { background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem' },
   alertError:   { background: 'rgba(239,68,68,0.12)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.875rem' },
+  modeRow:       { display: 'flex', gap: '1rem', marginBottom: '1rem' },
+  modeBtn:       { flex: 1, background: '#0f1117', border: '2px solid #2a2d3e', borderRadius: 10, padding: '0.9rem 1rem', cursor: 'pointer', color: '#8b92a9', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.3rem' } as React.CSSProperties,
+  modeBtnActive: { borderColor: '#5865f2', color: '#f1f2f6', background: 'rgba(88,101,242,0.1)' },
+  modeHint:      { fontSize: '0.72rem', color: '#8b92a9' },
 };

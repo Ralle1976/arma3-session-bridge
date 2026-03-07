@@ -19,3 +19,14 @@ export async function updateSettings(registration_code: string): Promise<{
   const resp = await apiClient.put('/admin/settings', { registration_code });
   return resp.data;
 }
+
+
+export async function getVpnMode(): Promise<{ mode: string }> {
+  const resp = await apiClient.get('/admin/vpn-mode');
+  return resp.data;
+}
+
+export async function setVpnMode(mode: string): Promise<{ mode: string; message: string }> {
+  const resp = await apiClient.put('/admin/vpn-mode', { mode });
+  return resp.data;
+}
