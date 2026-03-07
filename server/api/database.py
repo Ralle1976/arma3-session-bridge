@@ -63,6 +63,12 @@ async def init_db() -> None:
                 actor       TEXT    NOT NULL DEFAULT 'admin',
                 created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
             );
+
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         await conn.commit()
 

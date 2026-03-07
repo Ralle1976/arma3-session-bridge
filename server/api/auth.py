@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
+from database import get_connection
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
@@ -123,10 +124,16 @@ async def get_peer_registrar(
     Raises:
         HTTP 401: if neither credential is valid.
     """
-    # Path 1: X-Registration-Code header
-    reg_code = os.getenv("PEER_REGISTRATION_CODE", "")
-    if x_registration_code and reg_code and x_registration_code == reg_code:
-        return  # authorised via registration code
+    # Path 1: X-Registration-Code header — check DB first, then env var
+    if x_registration_code:
+        async with get_connection() as conn:
+            cursor = await conn.execute(
+                "SELECT value FROM app_settings WHERE key = 'registration_code'"
+            )
+            row = await cursor.fetchone()
+        reg_code = row[0] if row else os.getenv("PEER_REGISTRATION_CODE", "")
+        if reg_code and x_registration_code == reg_code:
+            return  # authorised via registration code
 
     # Path 2: fall back to admin JWT
     if credentials is not None:
