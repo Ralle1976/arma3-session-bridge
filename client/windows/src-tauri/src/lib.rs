@@ -13,7 +13,7 @@ pub mod vpn;
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -45,8 +45,21 @@ pub struct AppState {
 // ─── Session Struct ────────────────────────────────────────────────────────────
 
 /// Session returned by `GET /sessions` or `POST /sessions` from the bridge API.
+fn de_session_id<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(s) => Ok(s),
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        _ => Err(de::Error::custom("session.id must be string or number")),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    #[serde(deserialize_with = "de_session_id")]
     pub id: String,
     pub mission_name: String,
     pub host_tunnel_ip: String,
