@@ -118,7 +118,6 @@ logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
-app = FastAPI(
     title="Arma3 Session Bridge API",
     version="0.1.0",
     description="WireGuard peer management and Arma3 session tracking.",
@@ -132,7 +131,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+)
 
+# Initialize rate limiter (5 requests per minute for auth endpoints)
+from slowapi import SlowAPI, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+app.state.limiter = SlowAPI(default_limiters=[], key_func=get_remote_address)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Include routers
 # ---------------------------------------------------------------------------
@@ -187,12 +196,16 @@ async def vpn_mode_status() -> dict:
 # ---------------------------------------------------------------------------
 
 
+from slowapi import Limiter
+limiter = Limiter(key_func=get_remote_address)
+
 @app.post(
     "/auth/login",
     response_model=TokenResponse,
     tags=["auth"],
     summary="Admin login — returns JWT",
 )
+@limiter.limit("5/minute")  # Max 5 login attempts per minute per IP
 async def login(request: Request, body: LoginRequest) -> TokenResponse:
     """Admin login endpoint with audit logging for security monitoring."""
     _admin_pw = os.getenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
