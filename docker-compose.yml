@@ -23,7 +23,7 @@ services:
       retries: 3
     restart: unless-stopped
     networks:
-
+      - arma3-net
   api:
     build:
       context: ./server/api
@@ -54,7 +54,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-
+      - arma3-net
   admin-ui:
     build:
       context: ./server/admin-ui
@@ -73,7 +73,7 @@ services:
       timeout: 5s
       retries: 3
     networks:
-
+      - arma3-net
 networks:
   arma3-net:
     driver: bridge
