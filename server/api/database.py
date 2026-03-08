@@ -88,6 +88,13 @@ async def init_db() -> None:
                     f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
                 )
                 await conn.commit()
-            except Exception:
+            except Exception as exc:
                 # Column already exists — silently skip
+                # Only ignore "duplicate column" errors, log others
+                if "duplicate column name" not in str(exc).lower():
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Migration failed for %s.%s: %s",
+                        table, column, exc
+                    )
                 pass
