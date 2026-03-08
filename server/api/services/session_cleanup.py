@@ -17,8 +17,7 @@ from services.event_bus import broadcast
 logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 30
-SESSION_TIMEOUT_MINUTES = 2
-
+SESSION_TIMEOUT_MINUTES = 10  # Extended from 2 to 10 minutes for Arma 3 gameplay stability
 
 async def cleanup_expired_sessions() -> int:
     """Mark sessions without heartbeat for > SESSION_TIMEOUT_MINUTES as ended.

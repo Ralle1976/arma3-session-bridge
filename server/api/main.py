@@ -21,6 +21,11 @@ Endpoints (skeleton — full implementation in subsequent tasks):
 """
 
 import asyncio
+import logging
+import os
+import time
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 import os
 import time
 from contextlib import asynccontextmanager
@@ -108,7 +113,11 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
+
+app = FastAPI(
 app = FastAPI(
     title="Arma3 Session Bridge API",
     version="0.1.0",
@@ -184,15 +193,29 @@ async def vpn_mode_status() -> dict:
     tags=["auth"],
     summary="Admin login — returns JWT",
 )
-async def login(body: LoginRequest) -> TokenResponse:
+async def login(request: Request, body: LoginRequest) -> TokenResponse:
+    """Admin login endpoint with audit logging for security monitoring."""
     _admin_pw = os.getenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
+    client_ip = request.client.host if request.client else "unknown"
+    
     if not _admin_pw:
+        logger.warning("Login attempt failed: admin password not configured (IP: %s)", client_ip)
         raise HTTPException(status_code=503, detail="Admin password not configured")
+    
     if body.password != _admin_pw:
+        logger.warning(
+            "Login attempt failed: invalid password (IP: %s, user-agent: %s)",
+            client_ip,
+            request.headers.get("user-agent", "unknown")
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid password",
         )
+    
+    logger.info("Login successful: admin authenticated (IP: %s)", client_ip)
+    token = _create_token("admin", {"role": "admin"})
+    return TokenResponse(access_token=token)
     token = _create_token("admin", {"role": "admin"})
     return TokenResponse(access_token=token)
 

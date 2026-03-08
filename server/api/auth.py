@@ -9,7 +9,11 @@ JWT payload structure:
   { "sub": "admin", "role": "admin", "iat": ..., "exp": ... }
 """
 
+import logging
 import os
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
+from fastapi import Request, Depends, Header, HTTPException, status
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -23,6 +27,10 @@ JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60 * 8  # 8 hours
 
 _bearer_scheme = HTTPBearer(auto_error=True)
+logger = logging.getLogger(__name__)
+
+
+def create_admin_token() -> str:
 
 
 def create_admin_token() -> str:
@@ -67,6 +75,7 @@ def _decode_token(token: str) -> dict:
         payload = jwt.decode(token, _secret, algorithms=[JWT_ALGORITHM])
         return payload
     except JWTError as exc:
+        logger.warning("JWT validation failed: %s (token starts with: %s...)", exc, token[:20] if len(token) > 20 else token)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired token: {exc}",
@@ -92,8 +101,13 @@ async def get_admin_user(
         HTTP 403: if role != 'admin'.
     """
     payload = _decode_token(credentials.credentials)
-
+    
     if payload.get("role") != "admin":
+        logger.warning(
+            "Access denied: non-admin role attempt (role=%s, sub=%s)",
+            payload.get("role"),
+            payload.get("sub")
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required",
@@ -171,12 +185,19 @@ async def get_peer_user(
         HTTP 403: if role is neither 'peer' nor 'admin'.
     """
     payload = _decode_token(credentials.credentials)
-
+    
     role = payload.get("role")
     if role not in ("peer", "admin"):
+        logger.warning(
+            "Access denied: invalid role (role=%s, sub=%s, expected: peer or admin)",
+            role,
+            payload.get("sub")
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Peer or admin role required",
         )
+    
+    return payload
 
     return payload

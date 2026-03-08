@@ -21,7 +21,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import PlainTextResponse
 
 from auth import get_admin_user, get_peer_registrar, get_peer_user
@@ -533,6 +533,7 @@ async def revoke_peer(
     },
 )
 async def register_peer(
+    request: Request,
     body: PeerRegisterRequest,
     _auth: Annotated[None, Depends(get_peer_registrar)],
 ) -> PlainTextResponse:
@@ -546,13 +547,49 @@ async def register_peer(
        private key before saving (done by the Tauri generate_and_register_peer command).
     """
     async with get_connection() as conn:
-        # 1. Name uniqueness check — allow re-registration (update public key)
+        # 1. Name uniqueness check
         cursor = await conn.execute(
-            "SELECT id, tunnel_ip, revoked FROM peers WHERE name = ?", (body.name,)
+            "SELECT id, tunnel_ip, revoked, public_key FROM peers WHERE name = ?", (body.name,)
         )
         existing = await cursor.fetchone()
+        
         if existing:
-            # Re-registration: update public key, revive if revoked, re-sync WireGuard
+            # Peer name already exists
+            if existing["revoked"] == 0:
+                # Active peer exists — only allow re-registration if caller provides
+                # the original peer token (proves they own the peer)
+                auth_header = request.headers.get("authorization", "")
+                
+                if auth_header.startswith("Bearer "):
+                    # Try to decode the token and verify it matches this peer
+                    try:
+                        from jose import jwt as _jwt
+                        token_payload = _jwt.decode(
+                            auth_header[7:],
+                            os.getenv("JWT_SECRET", ""),
+                            algorithms=["HS256"]
+                        )
+                        # Check if token is for this peer
+                        if str(token_payload.get("peer_id") or token_payload.get("sub")) != str(existing["id"]):
+                            raise HTTPException(
+                                status_code=status.HTTP_403_FORBIDDEN,
+                                detail="Dieser Peer-Name ist bereits vergeben. Bitte verwende deinen ursprünglichen Peer-Token für die Re-Registrierung.",
+                            )
+                    except HTTPException:
+                        raise
+                    except Exception:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Ungültiger Peer-Token. Re-Registrierung nur mit gültigem Token des ursprünglichen Peers erlaubt.",
+                        )
+                else:
+                    # No valid token provided — reject re-registration of active peer
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Peer '{body.name}' existiert bereits. Re-Registrierung nur mit ursprünglichem Peer-Token möglich.",
+                    )
+            
+            # Re-registration allowed: peer is revoked OR caller has valid token
             peer_id = existing["id"]
             tunnel_ip = existing["tunnel_ip"]
             now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -575,7 +612,6 @@ async def register_peer(
                 tunnel_ip=tunnel_ip,
                 allowed_ips="10.8.0.0/24",
             )
-            # Issue peer JWT for session auth
             peer_token = _issue_peer_token(peer_id)
             return PlainTextResponse(
                 content=config,
