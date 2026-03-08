@@ -20,7 +20,6 @@ export default function SettingsPage() {
   const [vpnModeSaving, setVpnModeSaving] = useState(false);
   const [vpnModeMsg, setVpnModeMsg] = useState('');
   const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
-  const [cleanupLoading, setCleanupLoading] = useState(false);
   const [cleanupTriggering, setCleanupTriggering] = useState(false);
   const [cleanupMsg, setCleanupMsg] = useState('');
   const [lang, setLang] = useState<SettingsLang>(
