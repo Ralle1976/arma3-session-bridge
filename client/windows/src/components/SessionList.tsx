@@ -4,6 +4,8 @@ import type { FC } from 'react'
 import { useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from '../i18n/LanguageContext'
+import { OnlinePlayersList } from './OnlinePlayersList'
+import type { OnlinePeer } from './OnlinePlayersList'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,8 @@ interface SessionListProps {
   onRefresh: () => void
   loading: boolean
   hostedSessionId: string | null
+  onlinePeers: OnlinePeer[]
+  peersLoading: boolean
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -32,6 +36,8 @@ export const SessionList: FC<SessionListProps> = ({
   onRefresh,
   loading,
   hostedSessionId,
+  onlinePeers,
+  peersLoading,
 }) => {
   const { t } = useTranslation()
   const [joinResult, setJoinResult] = useState<{ sessionId: string; ip: string } | null>(null)
@@ -56,6 +62,11 @@ export const SessionList: FC<SessionListProps> = ({
 
   return (
     <div>
+      {/* Online Players */}
+      {vpnConnected && (
+        <OnlinePlayersList peers={onlinePeers} loading={peersLoading} />
+      )}
+
       <div className="session-header">
         <span className="section-title">{t.tabSessions} ({activeSessions.length})</span>
         <button

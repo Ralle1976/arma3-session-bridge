@@ -149,3 +149,34 @@ async def get_peer_registrar(
         detail="Ungültiger Registrierungs-Code. Bitte den Code vom Admin erfragen.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Peer Auth (for authenticated peer endpoints — sessions, heartbeats, etc.)
+# ---------------------------------------------------------------------------
+
+
+async def get_peer_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(_bearer_scheme)],
+) -> dict:
+    """FastAPI dependency: validates peer Bearer JWT (role=peer).
+
+    Also accepts admin tokens (admin can do anything a peer can).
+
+    Returns:
+        Decoded JWT payload dict with role='peer' (or 'admin').
+
+    Raises:
+        HTTP 401: if token is missing, invalid, or expired.
+        HTTP 403: if role is neither 'peer' nor 'admin'.
+    """
+    payload = _decode_token(credentials.credentials)
+
+    role = payload.get("role")
+    if role not in ("peer", "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Peer or admin role required",
+        )
+
+    return payload

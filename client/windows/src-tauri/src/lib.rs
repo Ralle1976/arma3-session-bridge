@@ -81,6 +81,16 @@ pub struct ConnectionInfo {
     pub wireguard_installed: bool,
     pub peer_name: Option<String>,
 }
+
+
+/// A peer currently connected to the WireGuard VPN.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnlinePeer {
+    pub name: String,
+    pub tunnel_ip: String,
+    pub connection_quality: String,
+    pub last_handshake_ago: Option<i64>,
+}
 // ─── API URL Helpers ───────────────────────────────────────────────────────────
 
 /// Load the API base URL from the persisted config file.
@@ -699,6 +709,73 @@ async fn get_connection_info() -> Result<ConnectionInfo, String> {
     })
 }
 
+
+// ─── Online Peers Command ─────────────────────────────────────────────────────────────
+
+/// Fetch the list of currently online peers from the bridge API.
+///
+/// Calls `GET /peers/online` with the stored peer token.
+///
+/// Invoked from frontend: `invoke('get_online_peers')`
+#[tauri::command]
+async fn get_online_peers() -> Result<Vec<OnlinePeer>, String> {
+    let base = load_api_url()?;
+    let token = load_peer_token()?;
+    let url = format!("{}/peers/online", base.trim_end_matches('/'));
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("API error {}: {}", response.status(), response.status().canonical_reason().unwrap_or("Unknown")));
+    }
+
+    response
+        .json::<Vec<OnlinePeer>>()
+        .await
+        .map_err(|e| format!("Failed to parse online peers JSON: {e}"))
+}
+
+/// Fetch the current VPN mode from the server API.
+///
+/// Calls `GET /vpn-mode` (no auth required).
+///
+/// Invoked from frontend: `invoke('get_vpn_mode')`
+#[tauri::command]
+async fn get_vpn_mode() -> Result<String, String> {
+    let base = load_api_url()?;
+    let url = format!("{}/vpn-mode", base.trim_end_matches('/'));
+
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Ok("arma3".to_string()); // default fallback
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse VPN mode JSON: {e}"))?;
+
+    Ok(body["mode"].as_str().unwrap_or("arma3").to_string())
+}
+
 // ─── Application Entry ─────────────────────────────────────────────────────────
 
 /// Build and run the Tauri application.
@@ -861,6 +938,8 @@ pub fn run() {
             download_peer_config,
             generate_and_register_peer,
             get_connection_info,
+            get_online_peers,
+            get_vpn_mode,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

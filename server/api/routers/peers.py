@@ -7,8 +7,9 @@ Endpoints:
   GET    /peers/{id}         → 200  Get single peer (404 if not found)
   DELETE /peers/{id}         → 204  Revoke peer, sync WireGuard
   GET    /peers/{id}/config  → 200  Download WireGuard client .conf file
+  GET    /peers/online       → 200  List currently connected peers (peer JWT)
 
-All endpoints require Admin Bearer JWT (see auth.py).
+All admin endpoints require Admin Bearer JWT (see auth.py).
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import PlainTextResponse
 
-from auth import get_admin_user, get_peer_registrar
+from auth import get_admin_user, get_peer_registrar, get_peer_user
 from database import get_connection
 from models import PeerCreate, PeerCreateResponse, PeerResponse, PeerRegisterRequest
 from services.wireguard import (
@@ -104,8 +105,95 @@ def _row_to_peer_response(row: Any) -> PeerResponse:
         revoked=bool(row["revoked"]),
     )
 
+# ── GET /peers/online ────────────────────────────────────────────────────────────────
 
-# ── POST /peers ────────────────────────────────────────────────────────────────
+
+def _get_wg_peer_stats_raw() -> list[dict]:
+    """Run `wg show wg0 dump` and parse per-peer stats (same logic as admin router)."""
+    import subprocess, time as _time, os as _os
+    wg_container = _os.getenv("WG_CONTAINER", "arma3-wireguard")
+    try:
+        result = subprocess.run(
+            ["docker", "exec", wg_container, "wg", "show", "wg0", "dump"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return []
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+
+    peers = []
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        return peers
+    # Skip interface line (first line)
+    now = int(_time.time())
+    for line in lines[1:]:
+        parts = line.split("\t")
+        if len(parts) < 8:
+            continue
+        pub_key = parts[0]
+        last_handshake_ts = int(parts[4]) if parts[4].isdigit() else 0
+        last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
+
+        if last_handshake_ago is None or last_handshake_ago > 600:
+            quality = "offline"
+        elif last_handshake_ago > 180:
+            quality = "warning"
+        else:
+            quality = "good"
+
+        peers.append({
+            "public_key": pub_key,
+            "connection_quality": quality,
+            "last_handshake_ago": last_handshake_ago,
+        })
+    return peers
+
+
+@router.get(
+    "/online",
+    summary="List currently connected peers (peer JWT required)",
+    responses={200: {"description": "List of online peers with name, tunnel IP, and connection quality"}},
+)
+async def list_online_peers(
+    _peer: Annotated[dict, Depends(get_peer_user)],
+) -> list[dict]:
+    """Return peers currently connected to the WireGuard VPN.
+
+    Joins `wg show wg0 dump` data with the peers DB to resolve names.
+    Only returns peers with connection_quality != 'offline'.
+    Does NOT expose public keys, endpoints, or transfer stats.
+    """
+    wg_peers = _get_wg_peer_stats_raw()
+    if not wg_peers:
+        return []
+
+    # Build pubkey → wg info mapping
+    wg_by_pubkey = {p["public_key"]: p for p in wg_peers}
+
+    # Fetch active peers from DB to resolve names and tunnel IPs
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT name, public_key, tunnel_ip FROM peers WHERE revoked = 0"
+        )
+        rows = await cursor.fetchall()
+
+    online = []
+    for row in rows:
+        wg_info = wg_by_pubkey.get(row["public_key"])
+        if wg_info and wg_info["connection_quality"] != "offline":
+            online.append({
+                "name": row["name"],
+                "tunnel_ip": row["tunnel_ip"],
+                "connection_quality": wg_info["connection_quality"],
+                "last_handshake_ago": wg_info["last_handshake_ago"],
+            })
+
+    return online
+
+
+# ── POST /peers ──────────────────────────────────────────────────────────────────────
 
 
 @router.post(

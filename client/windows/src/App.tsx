@@ -6,8 +6,10 @@ import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
 import { FirstRunWizard } from './components/FirstRunWizard'
 import { ConnectionInfoPanel } from './components/ConnectionInfoPanel'
+import { VpnStatusBar } from './components/VpnStatusBar'
 import { useTranslation } from './i18n/LanguageContext'
 import type { Session } from './components/SessionList'
+import type { OnlinePeer } from './components/OnlinePlayersList'
 import './App.css'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -36,7 +38,12 @@ function App() {
   // null = checking, false = missing/invalid, true = valid
   const [configValid, setConfigValid] = useState<boolean | null>(null)
   const [showConnectionInfo, setShowConnectionInfo] = useState(false)
-
+  const [vpnMode, setVpnMode] = useState<string>('arma3')
+  const [onlinePeers, setOnlinePeers] = useState<OnlinePeer[]>([])
+  const [peersLoading, setPeersLoading] = useState(false)
+  const [connectionStartTime, setConnectionStartTime] = useState<number | null>(null)
+  const [tunnelIp, setTunnelIp] = useState<string | null>(null)
+  const [peerName, setPeerName] = useState<string | null>(null)
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -45,6 +52,12 @@ function App() {
     try {
       await invoke<string>('connect_vpn', { confPath: WG_CONF_PATH })
       setVpnStatus('connected')
+      setShowConnectionInfo(true)
+      setConnectionStartTime(Date.now())
+      invoke<string>('get_vpn_mode').then(m => setVpnMode(m)).catch(() => {})
+      invoke<{ tunnel_ip: string | null; peer_name: string | null }>('get_connection_info')
+        .then(info => { setTunnelIp(info.tunnel_ip); setPeerName(info.peer_name) })
+        .catch(() => {})
     } catch (e) {
       setVpnStatus('disconnected')
       setVpnError(String(e))
@@ -56,6 +69,11 @@ function App() {
       await invoke<string>('disconnect_vpn', { tunnelName: WG_TUNNEL_NAME })
       setVpnStatus('disconnected')
       setSessions([])
+      setConnectionStartTime(null)
+      setOnlinePeers([])
+      setVpnMode('arma3')
+      setTunnelIp(null)
+      setPeerName(null)
     } catch {
       // keep current status
     }
@@ -165,6 +183,22 @@ function App() {
     }
   }, [vpnStatus, refreshSessions])
 
+  // ── Online peers polling ────────────────────────────────────────────
+
+  useEffect(() => {
+    if (vpnStatus !== 'connected') return
+    const fetchPeers = async () => {
+      setPeersLoading(true)
+      try {
+        const peers = await invoke<OnlinePeer[]>('get_online_peers')
+        setOnlinePeers(peers)
+      } catch { /* ignore */ } finally { setPeersLoading(false) }
+    }
+    fetchPeers()
+    const interval = setInterval(fetchPeers, 30_000)
+    return () => clearInterval(interval)
+  }, [vpnStatus])
+
   // ── Render ──────────────────────────────────────────────────────────
 
   if (configValid === null) {
@@ -201,6 +235,11 @@ function App() {
           </div>
         </div>
         <div className="titlebar-right">
+          {(vpnStatus === 'connected' || vpnStatus === 'connecting') && (
+            <span className={`vpn-mode-badge ${vpnMode === 'arma3' ? 'arma3' : 'open'}`}>
+              {vpnMode === 'arma3' ? t.vpnModeArma : t.vpnModeOpen}
+            </span>
+          )}
           {vpnStatus === 'connected' && (
             <button
               className="info-toggle-btn"
@@ -238,6 +277,16 @@ function App() {
         </div>
       )}
 
+      {/* VPN Status Bar (persistent, visible when connected) */}
+      {vpnStatus === 'connected' && (
+        <VpnStatusBar
+          tunnelIp={tunnelIp}
+          vpnMode={vpnMode}
+          peerName={peerName}
+          connectionStartTime={connectionStartTime}
+        />
+      )}
+
       {/* Tabs */}
       <div className="tabs">
         <button
@@ -266,6 +315,8 @@ function App() {
             onRefresh={refreshSessions}
             loading={loading}
             hostedSessionId={hostedSessionId}
+            onlinePeers={onlinePeers}
+            peersLoading={peersLoading}
           />
         ) : (
           <HostSessionForm

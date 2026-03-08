@@ -56,6 +56,14 @@ export const translations = {
     btnStartSession: 'Session starten',
     btnStopSession: 'Session beenden',
     sessionActive: 'Session aktiv',
+    // VPN Status
+    vpnModeArma: '🎮 Arma-only',
+    vpnModeOpen: '🔓 Open',
+    statusBarLabel: 'Tunnel IP',
+    onlinePlayersTitle: 'Verbundene Spieler',
+    onlinePlayersEmpty: 'Keine Spieler online',
+    onlinePlayersLoading: 'Lade...',
+    connectionTime: 'Verbunden seit',
   },
   en: {
     // Wizard
@@ -112,6 +120,14 @@ export const translations = {
     btnStartSession: 'Start Session',
     btnStopSession: 'Stop Session',
     sessionActive: 'Session active',
+    // VPN Status
+    vpnModeArma: '🎮 Arma-only',
+    vpnModeOpen: '🔓 Open',
+    statusBarLabel: 'Tunnel IP',
+    onlinePlayersTitle: 'Connected Players',
+    onlinePlayersEmpty: 'No players online',
+    onlinePlayersLoading: 'Loading...',
+    connectionTime: 'Connected for',
   }
 };
 
