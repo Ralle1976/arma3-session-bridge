@@ -31,9 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 def create_admin_token() -> str:
-
-
-def create_admin_token() -> str:
     """Issue a signed admin JWT token.
 
     Returns:
