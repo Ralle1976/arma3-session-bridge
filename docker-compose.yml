@@ -16,11 +16,13 @@ services:
       - ./server/wireguard/entrypoint.sh:/custom-cont-init.d/99-gen-keys.sh:ro
     ports:
       - "${WG_PORT:-51820}:51820/udp"
-    sysctls:
-      - net.ipv4.conf.all.src_valid_mark=1
+    healthcheck:
+      test: ["CMD", "wg", "show"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped
     networks:
-      - arma3-net
 
   api:
     build:
@@ -43,9 +45,15 @@ services:
       - "${API_PORT:-8001}:8000"
     restart: unless-stopped
     depends_on:
-      - wireguard
+      wireguard:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
-      - arma3-net
 
   admin-ui:
     build:
@@ -57,9 +65,14 @@ services:
       - "${ADMIN_UI_PORT:-8090}:80"
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     networks:
-      - arma3-net
 
 networks:
   arma3-net:
