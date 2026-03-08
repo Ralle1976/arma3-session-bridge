@@ -132,15 +132,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize rate limiter
 # Initialize rate limiter (5 requests per minute for auth endpoints)
-from slowapi import SlowAPI, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.extension import Limiter
 
-app.state.limiter = SlowAPI(default_limiters=[], key_func=get_remote_address)
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 # ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Include routers
