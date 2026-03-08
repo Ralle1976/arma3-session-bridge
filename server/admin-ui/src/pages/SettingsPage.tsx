@@ -432,7 +432,7 @@ Bei Problemen einfach melden.`;
           <button
             className="btn-primary"
             onClick={handleCleanupTrigger}
-            disabled={cleanupTriggering || cleanupLoading}
+            disabled={cleanupTriggering || loading}
           >
             {cleanupTriggering ? t.cleanupTriggering : t.cleanupTrigger}
           </button>
