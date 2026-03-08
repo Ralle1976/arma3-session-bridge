@@ -6,6 +6,7 @@ import { SessionList } from './components/SessionList'
 import { HostSessionForm } from './components/HostSessionForm'
 import { FirstRunWizard } from './components/FirstRunWizard'
 import { ConnectionInfoPanel } from './components/ConnectionInfoPanel'
+import type { MyPeerStats, PingResult } from './components/ConnectionInfoPanel'
 import { VpnStatusBar } from './components/VpnStatusBar'
 import { useTranslation } from './i18n/LanguageContext'
 import type { Session } from './components/SessionList'
@@ -44,6 +45,9 @@ function App() {
   const [connectionStartTime, setConnectionStartTime] = useState<number | null>(null)
   const [tunnelIp, setTunnelIp] = useState<string | null>(null)
   const [peerName, setPeerName] = useState<string | null>(null)
+  const [myStats, setMyStats] = useState<MyPeerStats | null>(null)
+  const [pingResult, setPingResult] = useState<PingResult | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -76,6 +80,8 @@ function App() {
       setVpnMode('arma3')
       setTunnelIp(null)
       setPeerName(null)
+      setMyStats(null)
+      setPingResult(null)
     } catch {
       // keep current status
     }
@@ -201,6 +207,26 @@ function App() {
     return () => clearInterval(interval)
   }, [vpnStatus])
 
+  // ── Network dashboard stats polling ────────────────────────────
+
+  useEffect(() => {
+    if (vpnStatus !== 'connected' || !showConnectionInfo) return
+    const fetchStats = async () => {
+      setStatsLoading(true)
+      try {
+        const [stats, ping] = await Promise.all([
+          invoke<MyPeerStats>('get_my_stats'),
+          invoke<PingResult>('ping_gateway'),
+        ])
+        setMyStats(stats)
+        setPingResult(ping)
+      } catch { /* ignore */ } finally { setStatsLoading(false) }
+    }
+    fetchStats()
+    const interval = setInterval(fetchStats, 15_000)
+    return () => clearInterval(interval)
+  }, [vpnStatus, showConnectionInfo])
+
   // ── Render ──────────────────────────────────────────────────────────
 
   if (configValid === null) {
@@ -306,7 +332,13 @@ function App() {
       </div>
 
       {/* Connection Info Panel (shown when VPN connected and panel toggled open) */}
-      <ConnectionInfoPanel visible={showConnectionInfo && vpnStatus === 'connected'} />
+      <ConnectionInfoPanel
+        visible={showConnectionInfo && vpnStatus === 'connected'}
+        myStats={myStats}
+        pingResult={pingResult}
+        statsLoading={statsLoading}
+        vpnMode={vpnMode}
+      />
 
       {/* Content */}
       <div className="tab-content">

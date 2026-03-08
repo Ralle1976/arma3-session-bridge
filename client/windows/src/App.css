@@ -1012,3 +1012,312 @@
   box-shadow: none;
   opacity: 0.5;
 }
+
+
+/* ===== NETWORK DASHBOARD ===== */
+/* Elevation level 3.5 — inside connection-info-panel, above tabs */
+
+/* 2-column grid for the 4 sections */
+.net-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* Stack vertically on narrow widths */
+@media (max-width: 480px) {
+  .net-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Individual section card */
+.net-section {
+  background: linear-gradient(135deg,
+    rgba(14, 24, 40, 0.82) 0%,
+    rgba(10, 18, 32, 0.88) 100%);
+  backdrop-filter: blur(10px) saturate(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  box-shadow:
+    var(--shadow-sm),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(96, 165, 250, 0.04);
+  transition: border-color 0.2s ease;
+}
+.net-section:hover {
+  border-color: var(--border-glow);
+}
+
+/* Section header — reuses .section-title pattern */
+.net-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+  display: block;
+}
+
+/* Empty placeholder when data is null */
+.net-section-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 8px 0;
+}
+
+
+/* ── Traffic Stats ────────────────────────────────────── */
+.traffic-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.traffic-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.traffic-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.traffic-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.traffic-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+
+.traffic-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+  margin-bottom: 4px;
+}
+
+.traffic-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+
+.traffic-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.traffic-bar-fill.download {
+  background: linear-gradient(90deg, var(--accent), var(--accent-bright));
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.5);
+}
+
+.traffic-bar-fill.upload {
+  background: linear-gradient(90deg, var(--green), #4ade80);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.traffic-raw {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+
+/* ── Latency / Ping ───────────────────────────────────── */
+.latency-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.latency-gateway-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.latency-value-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.latency-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.02em;
+}
+
+.reachable-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reachable-badge.reachable {
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.reachable-badge.unreachable {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.latency-meter {
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.latency-meter-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.latency-meter-fill.latency-good {
+  background: linear-gradient(90deg, var(--green), #4ade80);
+  box-shadow: var(--glow-green);
+}
+
+.latency-meter-fill.latency-warn {
+  background: linear-gradient(90deg, var(--yellow), #fde047);
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.5);
+}
+
+.latency-meter-fill.latency-bad {
+  background: linear-gradient(90deg, var(--red), #f87171);
+  box-shadow: var(--glow-red);
+}
+
+
+/* ── Arma 3 Ports ─────────────────────────────────────── */
+.ports-mode-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  display: inline-block;
+  letter-spacing: 0.02em;
+}
+
+.ports-mode-badge.arma3 {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-bright);
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.ports-mode-badge.open {
+  background: rgba(234, 179, 8, 0.08);
+  color: var(--yellow);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+
+.port-table {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.port-row {
+  display: grid;
+  grid-template-columns: 42px 36px 1fr;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.port-row:hover {
+  background: rgba(59, 130, 246, 0.05);
+  border-color: var(--border);
+}
+
+.port-number {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-bright);
+}
+
+.port-protocol {
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 4px;
+  text-align: center;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.port-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ── Own Peer Stats ───────────────────────────────────── */
+.peer-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.peer-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.peer-name-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.quality-label.good  { color: var(--green); }
+.quality-label.warning { color: var(--yellow); }
+.quality-label.offline { color: var(--text-muted); }

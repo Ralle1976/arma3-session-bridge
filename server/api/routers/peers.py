@@ -8,6 +8,8 @@ Endpoints:
   DELETE /peers/{id}         → 204  Revoke peer, sync WireGuard
   GET    /peers/{id}/config  → 200  Download WireGuard client .conf file
   GET    /peers/online       → 200  List currently connected peers (peer JWT)
+  GET    /peers/me           → 200  Own peer stats: traffic, quality, handshake (peer JWT)
+  POST   /peers/disconnect   → 200  Signal graceful disconnect (peer JWT)
   POST   /peers/disconnect   → 200  Signal graceful disconnect (peer JWT)
 
 All admin endpoints require Admin Bearer JWT (see auth.py).
@@ -152,6 +154,8 @@ def _get_wg_peer_stats_raw() -> list[dict]:
             "public_key": pub_key,
             "connection_quality": quality,
             "last_handshake_ago": last_handshake_ago,
+            "rx_bytes": int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0,
+            "tx_bytes": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0,
         })
     return peers
 
@@ -196,6 +200,65 @@ async def list_online_peers(
             })
 
     return online
+
+
+# ── GET /peers/me ────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/me",
+    summary="Get own peer stats (peer JWT required)",
+    responses={200: {"description": "Own peer's traffic, quality, and handshake stats"}},
+)
+async def get_my_stats(
+    peer: Annotated[dict, Depends(get_peer_user)],
+) -> dict:
+    """Return the calling peer's own WireGuard stats.
+
+    Includes rx/tx bytes, connection quality, last handshake, and tunnel IP.
+    Used by the client's Network Dashboard for self-monitoring.
+    """
+    peer_id = peer.get("peer_id") or peer.get("sub")
+    if not peer_id:
+        raise HTTPException(status_code=400, detail="Invalid peer token")
+
+    # Look up peer's public key and tunnel IP from DB
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT public_key, tunnel_ip, name FROM peers WHERE id = ? AND revoked = 0",
+            (int(peer_id),),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Peer not found")
+
+    # Find this peer's stats in WireGuard dump
+    wg_peers = _get_wg_peer_stats_raw()
+    wg_info = None
+    for wg_peer in wg_peers:
+        if wg_peer["public_key"] == row["public_key"]:
+            wg_info = wg_peer
+            break
+
+    if not wg_info:
+        return {
+            "name": row["name"],
+            "tunnel_ip": row["tunnel_ip"],
+            "connection_quality": "offline",
+            "last_handshake_ago": None,
+            "rx_bytes": 0,
+            "tx_bytes": 0,
+        }
+
+    return {
+        "name": row["name"],
+        "tunnel_ip": row["tunnel_ip"],
+        "connection_quality": wg_info["connection_quality"],
+        "last_handshake_ago": wg_info["last_handshake_ago"],
+        "rx_bytes": wg_info["rx_bytes"],
+        "tx_bytes": wg_info["tx_bytes"],
+    }
 
 
 # ── POST /peers/disconnect ─────────────────────────────────────────────────────────────

@@ -91,6 +91,25 @@ pub struct OnlinePeer {
     pub connection_quality: String,
     pub last_handshake_ago: Option<i64>,
 }
+
+/// Own peer stats returned by `GET /peers/me`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MyPeerStats {
+    pub name: String,
+    pub tunnel_ip: String,
+    pub connection_quality: String,
+    pub last_handshake_ago: Option<i64>,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+/// Result of a ping/latency measurement to the VPN gateway.
+#[derive(Debug, Clone, Serialize)]
+pub struct PingResult {
+    pub gateway_ip: String,
+    pub latency_ms: Option<u64>,
+    pub reachable: bool,
+}
 // ─── API URL Helpers ───────────────────────────────────────────────────────────
 
 /// Load the API base URL from the persisted config file.
@@ -806,6 +825,120 @@ async fn get_vpn_mode() -> Result<String, String> {
     Ok(body["mode"].as_str().unwrap_or("arma3").to_string())
 }
 
+
+// ─── My Stats Command ─────────────────────────────────────────────────────────
+
+/// Fetch the calling peer's own WireGuard stats from the server.
+///
+/// Calls `GET /peers/me` with the stored peer token.
+/// Returns traffic bytes, connection quality, and handshake info.
+///
+/// Invoked from frontend: `invoke('get_my_stats')`
+#[tauri::command]
+async fn get_my_stats() -> Result<MyPeerStats, String> {
+    let base = load_api_url()?;
+    let token = load_peer_token()?;
+    let url = format!("{}/peers/me", base.trim_end_matches('/'));
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("API error {}", response.status()));
+    }
+
+    response
+        .json::<MyPeerStats>()
+        .await
+        .map_err(|e| format!("Failed to parse peer stats JSON: {e}"))
+}
+
+
+// ─── Ping Gateway Command ─────────────────────────────────────────────────────
+
+/// Ping the VPN gateway (10.8.0.1) and return the latency.
+///
+/// Uses Windows `ping -n 1 -w 3000` and parses the output.
+/// Falls back to HTTP latency if ICMP fails.
+///
+/// Invoked from frontend: `invoke('ping_gateway')`
+#[tauri::command]
+async fn ping_gateway() -> Result<PingResult, String> {
+    let gateway = "10.8.0.1";
+
+    // Try ICMP ping first (Windows)
+    let ping_result = std::process::Command::new("ping")
+        .args(["-n", "1", "-w", "3000", gateway])
+        .output();
+
+    if let Ok(output) = ping_result {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Parse "time=15ms" (EN) or "Zeit=15ms" (DE)
+        if let Some(ms) = parse_ping_ms(&stdout) {
+            return Ok(PingResult {
+                gateway_ip: gateway.to_string(),
+                latency_ms: Some(ms),
+                reachable: true,
+            });
+        }
+    }
+
+    // Fallback: HTTP latency to API through tunnel
+    if let Ok(base) = load_api_url() {
+        let health_url = format!("{}/health", base.trim_end_matches('/'));
+        if let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(3))
+            .build()
+        {
+            let start = std::time::Instant::now();
+            if client.get(&health_url).send().await.is_ok() {
+                return Ok(PingResult {
+                    gateway_ip: gateway.to_string(),
+                    latency_ms: Some(start.elapsed().as_millis() as u64),
+                    reachable: true,
+                });
+            }
+        }
+    }
+
+    Ok(PingResult {
+        gateway_ip: gateway.to_string(),
+        latency_ms: None,
+        reachable: false,
+    })
+}
+
+/// Parse ping latency from Windows ping output (EN + DE).
+fn parse_ping_ms(output: &str) -> Option<u64> {
+    for line in output.lines() {
+        let lower = line.to_lowercase();
+        if let Some(pos) = lower.find("time=").or_else(|| lower.find("zeit=")) {
+            let after = &lower[pos..];
+            let num_start = after.find('=').map(|i| i + 1)?;
+            let num_str: String = after[num_start..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !num_str.is_empty() {
+                return num_str.parse::<u64>().ok();
+            }
+        }
+        if lower.contains("time<1ms") || lower.contains("zeit<1ms") {
+            return Some(0);
+        }
+    }
+    None
+}
+
 // ─── Application Entry ─────────────────────────────────────────────────────────
 
 /// Build and run the Tauri application.
@@ -971,6 +1104,8 @@ pub fn run() {
             get_online_peers,
             get_vpn_mode,
             notify_disconnect,
+            get_my_stats,
+            ping_gateway,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
