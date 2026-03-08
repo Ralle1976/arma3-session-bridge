@@ -23,6 +23,8 @@ from jose import jwt, JWTError
 from pydantic import BaseModel, Field
 
 from database import get_connection
+from models import SessionUpdate
+from services.event_bus import broadcast
 from services.event_bus import broadcast
 
 logger = logging.getLogger(__name__)
