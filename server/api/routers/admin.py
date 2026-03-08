@@ -492,3 +492,80 @@ async def admin_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Peer Auto-Cleanup (manual trigger + status)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/peer-cleanup",
+    summary="Manually trigger inactive peer cleanup (AdminBearer required)",
+    responses={200: {"description": "Cleanup result with count of revoked peers"}},
+)
+async def trigger_peer_cleanup(_admin: str = Depends(_require_admin)) -> dict:
+    """Manually run the 30-day inactive peer cleanup."""
+    from services.peer_cleanup import cleanup_inactive_peers
+    count = await cleanup_inactive_peers()
+    return {
+        "status": "ok",
+        "peers_revoked": count,
+        "message": f"Cleanup complete: {count} peer(s) auto-revoked" if count else "No inactive peers found",
+    }
+
+
+@router.get(
+    "/peer-cleanup/status",
+    summary="Get peer cleanup configuration and inactive peer preview (AdminBearer required)",
+)
+async def peer_cleanup_status(_admin: str = Depends(_require_admin)) -> dict:
+    """Show cleanup config and list peers that would be revoked if cleanup ran now."""
+    from services.peer_cleanup import (
+        CLEANUP_INTERVAL_SECONDS,
+        INACTIVITY_THRESHOLD_SECONDS,
+        _get_wg_handshake_map,
+    )
+    import time as _time
+
+    now_epoch = int(_time.time())
+    cutoff_epoch = now_epoch - INACTIVITY_THRESHOLD_SECONDS
+    wg_handshakes = _get_wg_handshake_map()
+
+    # Find peers that would be revoked
+    candidates = []
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT id, name, tunnel_ip, public_key, created_at FROM peers WHERE revoked = 0"
+        )
+        rows = await cursor.fetchall()
+
+    for row in rows:
+        pub_key = row["public_key"]
+        last_activity_epoch = wg_handshakes.get(pub_key)
+
+        if last_activity_epoch is None:
+            try:
+                created_dt = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                last_activity_epoch = int(created_dt.timestamp())
+            except (ValueError, TypeError):
+                continue
+
+        days_inactive = (now_epoch - last_activity_epoch) / 86400
+        would_revoke = last_activity_epoch < cutoff_epoch
+
+        candidates.append({
+            "id": row["id"],
+            "name": row["name"],
+            "tunnel_ip": row["tunnel_ip"],
+            "days_inactive": round(days_inactive, 1),
+            "would_revoke": would_revoke,
+        })
+
+    return {
+        "interval_hours": round(CLEANUP_INTERVAL_SECONDS / 3600, 1),
+        "threshold_days": round(INACTIVITY_THRESHOLD_SECONDS / 86400),
+        "total_active_peers": len(candidates),
+        "peers_to_revoke": sum(1 for c in candidates if c["would_revoke"]),
+        "peers": sorted(candidates, key=lambda x: x["days_inactive"], reverse=True),
+    }

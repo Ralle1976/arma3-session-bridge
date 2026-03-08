@@ -69,11 +69,12 @@ def _create_token(subject: str, extra: dict | None = None) -> str:
 # ---------------------------------------------------------------------------
 
 _cleanup_task: asyncio.Task | None = None
+_peer_cleanup_task: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _cleanup_task
+    global _cleanup_task, _peer_cleanup_task
 
     _jwt_secret = os.getenv("JWT_SECRET", "")
     _admin_pw = os.getenv("ADMIN_PASSWORD", "")
@@ -92,15 +93,20 @@ async def lifespan(app: FastAPI):
     from services.session_cleanup import cleanup_loop
     _cleanup_task = asyncio.create_task(cleanup_loop())
 
+    # Start background peer auto-cleanup task (revoke inactive peers after 30 days)
+    from services.peer_cleanup import peer_cleanup_loop
+    _peer_cleanup_task = asyncio.create_task(peer_cleanup_loop())
+
     yield
 
-    # Shutdown: cancel cleanup task
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
-        try:
-            await _cleanup_task
-        except asyncio.CancelledError:
-            pass
+    # Shutdown: cancel background tasks
+    for task in (_cleanup_task, _peer_cleanup_task):
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(
