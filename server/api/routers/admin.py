@@ -23,6 +23,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from pydantic import BaseModel
 
+from auth import get_admin_user
 from database import get_connection
 from services.event_bus import subscribe, unsubscribe
 from services.peer_status import is_explicitly_disconnected
@@ -31,11 +32,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 JWT_SECRET = os.getenv("JWT_SECRET", "")
-JWT_ALGORITHM = "HS256"
-WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
-
-_security = HTTPBearer()
-
+BY|JWT_ALGORITHM = "HS256"
+KM|WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
+RB|
+KR|# Track server start time for uptime calculation
 # Track server start time for uptime calculation
 _server_start_time: float = time.time()
 
@@ -46,34 +46,7 @@ def set_server_start_time(t: float) -> None:
     _server_start_time = t
 
 
-# ---------------------------------------------------------------------------
-# Auth helpers
-# ---------------------------------------------------------------------------
 
-
-async def _require_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(_security),
-) -> str:
-    """Validate AdminBearer JWT and return the subject string."""
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET,
-            algorithms=[JWT_ALGORITHM],
-        )
-    except JWTError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {exc}",
-        )
-
-    if payload.get("role") != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin token required (role=admin)",
-        )
-
-    return payload.get("sub", "admin")
 
 
 # ---------------------------------------------------------------------------
@@ -266,7 +239,7 @@ class AdminSession(BaseModel):
     response_model=list[AdminSession],
     summary="List all sessions (active + history) for admin UI",
 )
-async def admin_sessions(_admin: str = Depends(_require_admin)) -> list[AdminSession]:
+async def admin_sessions(_admin: dict = Depends(get_admin_user)) -> list[AdminSession]:
     """Return active and ended sessions with peer names for admin dashboard."""
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -332,7 +305,7 @@ async def admin_sessions(_admin: str = Depends(_require_admin)) -> list[AdminSes
 )
 async def admin_session_by_id(
     session_id: int,
-    _admin: str = Depends(_require_admin),
+    _admin: dict = Depends(get_admin_user),
 ) -> AdminSession:
     async with get_connection() as conn:
         cursor = await conn.execute(
@@ -392,7 +365,7 @@ async def admin_session_by_id(
     response_model=AdminStats,
     summary="System statistics (AdminBearer required)",
 )
-async def admin_stats(_admin: str = Depends(_require_admin)) -> AdminStats:
+async def admin_stats(_admin: dict = Depends(get_admin_user)) -> AdminStats:
     """Return current system statistics including WireGuard traffic counters."""
     async with get_connection() as conn:
         cur_peers = await conn.execute(
@@ -422,7 +395,7 @@ async def admin_stats(_admin: str = Depends(_require_admin)) -> AdminStats:
     response_model=WgStats,
     summary="Per-peer WireGuard stats with connection quality (AdminBearer required)",
 )
-async def admin_wg_stats(_admin: str = Depends(_require_admin)) -> WgStats:
+async def admin_wg_stats(_admin: dict = Depends(get_admin_user)) -> WgStats:
     """Return real-time WireGuard peer stats parsed from `wg show wg0 dump`.
 
     Connection quality thresholds:
@@ -504,7 +477,7 @@ async def admin_events(
     summary="Manually trigger inactive peer cleanup (AdminBearer required)",
     responses={200: {"description": "Cleanup result with count of revoked peers"}},
 )
-async def trigger_peer_cleanup(_admin: str = Depends(_require_admin)) -> dict:
+async def trigger_peer_cleanup(_admin: dict = Depends(get_admin_user)) -> dict:
     """Manually run the 30-day inactive peer cleanup."""
     from services.peer_cleanup import cleanup_inactive_peers
     count = await cleanup_inactive_peers()
@@ -519,7 +492,7 @@ async def trigger_peer_cleanup(_admin: str = Depends(_require_admin)) -> dict:
     "/peer-cleanup/status",
     summary="Get peer cleanup configuration and inactive peer preview (AdminBearer required)",
 )
-async def peer_cleanup_status(_admin: str = Depends(_require_admin)) -> dict:
+async def peer_cleanup_status(_admin: dict = Depends(get_admin_user)) -> dict:
     """Show cleanup config and list peers that would be revoked if cleanup ran now."""
     from services.peer_cleanup import (
         CLEANUP_INTERVAL_SECONDS,
