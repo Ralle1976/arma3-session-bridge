@@ -66,7 +66,9 @@ def _create_token(subject: str, extra: dict | None = None) -> str:
         "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=JWT_EXPIRE_MINUTES),
         **(extra or {}),
     }
-    return jwt.encode(payload, os.getenv("JWT_SECRET", JWT_SECRET), algorithm=JWT_ALGORITHM)
+    return jwt.encode(
+        payload, os.getenv("JWT_SECRET", JWT_SECRET), algorithm=JWT_ALGORITHM
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -92,14 +94,17 @@ async def lifespan(app: FastAPI):
 
     # Record server start time for uptime calculations
     from routers.admin import set_server_start_time
+
     set_server_start_time(time.time())
 
     # Start background session cleanup task
     from services.session_cleanup import cleanup_loop
+
     _cleanup_task = asyncio.create_task(cleanup_loop())
 
     # Start background peer auto-cleanup task (revoke inactive peers after 30 days)
     from services.peer_cleanup import peer_cleanup_loop
+
     _peer_cleanup_task = asyncio.create_task(peer_cleanup_loop())
 
     yield
@@ -113,13 +118,14 @@ async def lifespan(app: FastAPI):
             except asyncio.CancelledError:
                 pass
 
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
     title="Arma3 Session Bridge API",
-    version="0.1.0",
+    version="0.2.0",
     description="WireGuard peer management and Arma3 session tracking.",
     lifespan=lifespan,
 )
@@ -158,6 +164,12 @@ app.include_router(admin_router)
 app.include_router(settings_router)
 app.include_router(vpn_mode_router)
 
+app.include_router(peers_router, prefix="/api/v1", include_in_schema=False)
+app.include_router(sessions_router, prefix="/api/v1", include_in_schema=False)
+app.include_router(admin_router, prefix="/api/v1", include_in_schema=False)
+app.include_router(settings_router, prefix="/api/v1", include_in_schema=False)
+app.include_router(vpn_mode_router, prefix="/api/v1", include_in_schema=False)
+
 
 # ---------------------------------------------------------------------------
 # Public endpoints
@@ -172,7 +184,12 @@ app.include_router(vpn_mode_router)
 )
 async def health() -> dict:
     """Returns `{"status": "ok"}` — used by Docker health checks and monitoring."""
-    return {"status": "ok", "version": "0.1.0"}
+    return {"status": "ok", "version": "0.2.0"}
+
+
+@app.get("/api/v1/health", include_in_schema=False)
+async def health_v1() -> dict:
+    return await health()
 
 
 @app.get(
@@ -191,13 +208,20 @@ async def vpn_mode_status() -> dict:
     return {"mode": row[0] if row else "arma3"}
 
 
+@app.get("/api/v1/vpn-mode", include_in_schema=False)
+async def vpn_mode_status_v1() -> dict:
+    return await vpn_mode_status()
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 
 
 from slowapi import Limiter
+
 limiter = Limiter(key_func=get_remote_address)
+
 
 @app.post(
     "/auth/login",
@@ -210,22 +234,24 @@ async def login(request: Request, body: LoginRequest) -> TokenResponse:
     """Admin login endpoint with audit logging for security monitoring."""
     _admin_pw = os.getenv("ADMIN_PASSWORD", ADMIN_PASSWORD)
     client_ip = request.client.host if request.client else "unknown"
-    
+
     if not _admin_pw:
-        logger.warning("Login attempt failed: admin password not configured (IP: %s)", client_ip)
+        logger.warning(
+            "Login attempt failed: admin password not configured (IP: %s)", client_ip
+        )
         raise HTTPException(status_code=503, detail="Admin password not configured")
-    
+
     if body.password != _admin_pw:
         logger.warning(
             "Login attempt failed: invalid password (IP: %s, user-agent: %s)",
             client_ip,
-            request.headers.get("user-agent", "unknown")
+            request.headers.get("user-agent", "unknown"),
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid password",
         )
-    
+
     logger.info("Login successful: admin authenticated (IP: %s)", client_ip)
     token = _create_token("admin", {"role": "admin"})
     return TokenResponse(access_token=token)

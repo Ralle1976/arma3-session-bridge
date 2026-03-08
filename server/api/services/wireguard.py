@@ -15,7 +15,7 @@ from typing import Optional
 WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
 WG_SERVER_PUBLIC_KEY = os.getenv("WG_SERVER_PUBLIC_KEY", "")
 WG_SERVER_IP = os.getenv("WG_SERVER_IP", "")
-WG_LISTEN_PORT = int(os.getenv("WG_LISTEN_PORT", "51820"))
+WG_LISTEN_PORT = int(os.getenv("WG_LISTEN_PORT") or os.getenv("WG_PORT", "51820"))
 WG_SERVER_TUNNEL_IP = "10.8.0.1"
 
 
@@ -134,6 +134,26 @@ def sync_wireguard(peers: list[dict]) -> None:
         if sync_result.returncode != 0:
             raise RuntimeError(
                 f"wg syncconf failed (rc={sync_result.returncode}): {sync_result.stderr}"
+            )
+
+        listen_result = subprocess.run(
+            [
+                "docker",
+                "exec",
+                WG_CONTAINER,
+                "wg",
+                "set",
+                "wg0",
+                "listen-port",
+                str(WG_LISTEN_PORT),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if listen_result.returncode != 0:
+            raise RuntimeError(
+                f"wg set listen-port failed (rc={listen_result.returncode}): {listen_result.stderr}"
             )
     finally:
         try:
