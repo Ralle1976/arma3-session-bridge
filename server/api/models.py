@@ -68,10 +68,11 @@ class SessionCreate(SessionBase):
 
 
 class SessionUpdate(BaseModel):
-    mission: Optional[str] = Field(None, max_length=128)
-    map_name: Optional[str] = Field(None, max_length=64)
-    player_count: Optional[int] = Field(None, ge=0, le=256)
-
+    """Update session metadata — all fields optional, only provided fields are updated."""
+    mission_name: Optional[str] = Field(None, max_length=128, description="Mission file name")
+    map_name: Optional[str] = Field(None, max_length=64, description="Arma map identifier")
+    player_count: Optional[int] = Field(None, ge=0, le=256, description="Current player count")
+    max_players: Optional[int] = Field(None, ge=1, le=256, description="Max player slots")
 
 class SessionResponse(SessionBase):
     id: int

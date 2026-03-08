@@ -4,6 +4,8 @@ sessions.py — FastAPI Session Registry Router for arma3-session-bridge.
 Endpoints:
   POST   /sessions                 — create session (PeerBearer JWT required)
   GET    /sessions                 — list active sessions (public, no auth)
+  GET    /sessions/{id}            — get session by ID (public)
+  PUT    /sessions/{id}            — update session metadata (PeerBearer JWT required)
   DELETE /sessions/{id}            — end session (PeerBearer JWT required)
   PUT    /sessions/{id}/heartbeat  — update last_seen (PeerBearer JWT required)
 
@@ -287,6 +289,106 @@ async def delete_session(
 
     broadcast("session_ended", {"session_id": session_id, "peer_id": peer_id})
     logger.info("Session %s ended by peer %s", session_id, peer_id)
+
+
+
+@router.put(
+    "/{session_id}",
+    response_model=SessionResponse,
+    summary="Update session metadata (mission, player count) — PeerBearer required",
+    responses={
+        200: {"description": "Session updated successfully"},
+        403: {"description": "Not authorized (not session owner)"},
+        404: {"description": "Session not found"},
+        409: {"description": "Session already ended"},
+    },
+)
+async def update_session(
+    session_id: int,
+    data: SessionUpdate,
+    peer_id: int = Depends(_require_peer),
+) -> SessionResponse:
+    """Update session metadata (mission name, max players, current player count).
+    
+    Only the session owner can update their session.
+    """
+    row = await _fetch_session(session_id)
+    
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} not found",
+        )
+    
+    if row["peer_id"] != peer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update sessions you created",
+        )
+    
+    if not row["active"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is already ended",
+        )
+    
+    # Build dynamic update query with only provided fields
+    updates = []
+    values = []
+    
+    if data.mission_name is not None:
+        updates.append("mission_name = ?")
+        values.append(data.mission_name)
+    
+    if data.map_name is not None:
+        updates.append("map_name = ?")
+        values.append(data.map_name)
+    
+    if data.player_count is not None:
+        updates.append("current_players = ?")
+        values.append(data.player_count)
+    
+    if data.max_players is not None:
+        updates.append("max_players = ?")
+        values.append(data.max_players)
+    
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field (mission_name, map_name, player_count, max_players) must be provided",
+        )
+    
+    values.append(session_id)
+    
+    async with get_connection() as conn:
+        await conn.execute(
+            f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
+            tuple(values),
+        )
+        await conn.commit()
+        
+        # Fetch updated session
+        updated_row = await _fetch_session(session_id)
+    
+    logger.info(
+        "Session %s updated by peer %s: %s",
+        session_id,
+        peer_id,
+        ", ".join(updates)
+    )
+    
+    return SessionResponse(
+        id=updated_row["id"],
+        peer_id=updated_row["peer_id"],
+        mission_name=updated_row["mission_name"],
+        map_name=updated_row["map_name"],
+        player_count=updated_row["current_players"],
+        max_players=updated_row["max_players"],
+        started_at=updated_row["started_at"],
+        ended_at=updated_row["ended_at"],
+        active=bool(updated_row["active"]),
+    )
+
 
 
 @router.put(

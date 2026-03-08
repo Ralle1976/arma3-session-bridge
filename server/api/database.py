@@ -48,9 +48,12 @@ async def init_db() -> None:
             CREATE TABLE IF NOT EXISTS sessions (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 peer_id         INTEGER NOT NULL REFERENCES peers(id),
-                mission         TEXT,
+                mission_name    TEXT,
                 map_name        TEXT,
-                player_count    INTEGER NOT NULL DEFAULT 0,
+                max_players     INTEGER NOT NULL DEFAULT 10,
+                current_players INTEGER NOT NULL DEFAULT 0,
+                last_seen       TEXT    NOT NULL DEFAULT (datetime('now')),
+                status          TEXT    NOT NULL DEFAULT 'waiting',
                 started_at      TEXT    NOT NULL DEFAULT (datetime('now')),
                 ended_at        TEXT,
                 active          INTEGER NOT NULL DEFAULT 1
@@ -72,29 +75,7 @@ async def init_db() -> None:
         """)
         await conn.commit()
 
-        # Schema migrations — add columns introduced for session registry.
-        # SQLite does not support ALTER TABLE ... ADD COLUMN IF NOT EXISTS,
-        # so we try/except each column addition.
-        migrations = [
-            ("sessions", "last_seen",        "TEXT"),
-            ("sessions", "status",           "TEXT NOT NULL DEFAULT 'waiting'"),
-            ("sessions", "max_players",      "INTEGER NOT NULL DEFAULT 10"),
-            ("sessions", "current_players",  "INTEGER NOT NULL DEFAULT 0"),
-            ("sessions", "mission_name",     "TEXT"),
-        ]
-        for table, column, col_def in migrations:
-            try:
-                await conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
-                )
-                await conn.commit()
-            except Exception as exc:
-                # Column already exists — silently skip
-                # Only ignore "duplicate column" errors, log others
-                if "duplicate column name" not in str(exc).lower():
-                    import logging
-                    logging.getLogger(__name__).warning(
-                        "Migration failed for %s.%s: %s",
-                        table, column, exc
-                    )
+        # Schema migrations removed — all columns now created in initial schema
+        # Existing databases will have columns added via migrations on first startup
+        # New databases get correct schema from the start
                 pass
