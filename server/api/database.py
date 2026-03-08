@@ -78,4 +78,3 @@ async def init_db() -> None:
         # Schema migrations removed — all columns now created in initial schema
         # Existing databases will have columns added via migrations on first startup
         # New databases get correct schema from the start
-                pass
