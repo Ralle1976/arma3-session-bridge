@@ -745,6 +745,36 @@ async fn get_online_peers() -> Result<Vec<OnlinePeer>, String> {
         .map_err(|e| format!("Failed to parse online peers JSON: {e}"))
 }
 
+// ─── Disconnect Notify Command ────────────────────────────────────────────────────────
+
+/// Notify the server that this peer is disconnecting gracefully.
+///
+/// Calls `POST /peers/disconnect` with the stored peer token.
+/// This allows the server to immediately mark the peer as offline
+/// instead of waiting for the WireGuard handshake timeout.
+///
+/// Invoked from frontend: `invoke('notify_disconnect')`
+#[tauri::command]
+async fn notify_disconnect() -> Result<(), String> {
+    let base = load_api_url()?;
+    let token = load_peer_token()?;
+    let url = format!("{}/peers/disconnect", base.trim_end_matches('/'));
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    // Fire-and-forget style: we try our best but don't block disconnect
+    let _ = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await;
+
+    Ok(())
+}
+
 /// Fetch the current VPN mode from the server API.
 ///
 /// Calls `GET /vpn-mode` (no auth required).
@@ -940,6 +970,7 @@ pub fn run() {
             get_connection_info,
             get_online_peers,
             get_vpn_mode,
+            notify_disconnect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

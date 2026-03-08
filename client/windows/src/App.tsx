@@ -66,6 +66,8 @@ function App() {
 
   const disconnect = useCallback(async () => {
     try {
+      // Notify server BEFORE disconnecting tunnel (best-effort, don't block on failure)
+      await invoke('notify_disconnect').catch(() => {})
       await invoke<string>('disconnect_vpn', { tunnelName: WG_TUNNEL_NAME })
       setVpnStatus('disconnected')
       setSessions([])

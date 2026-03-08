@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from database import get_connection
 from services.event_bus import subscribe, unsubscribe
-
+from services.peer_status import is_explicitly_disconnected
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -177,9 +177,12 @@ def _parse_wg_dump(output: str) -> list[dict]:
         now = int(_time.time())
         last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
 
-        if last_handshake_ago is None or last_handshake_ago > 600:
+        # Check explicit disconnect registry first
+        if is_explicitly_disconnected(pub_key, last_handshake_ts):
             quality = "offline"
-        elif last_handshake_ago > 180:
+        elif last_handshake_ago is None or last_handshake_ago > 180:
+            quality = "offline"
+        elif last_handshake_ago > 60:
             quality = "warning"
         else:
             quality = "good"

@@ -8,6 +8,7 @@ Endpoints:
   DELETE /peers/{id}         → 204  Revoke peer, sync WireGuard
   GET    /peers/{id}/config  → 200  Download WireGuard client .conf file
   GET    /peers/online       → 200  List currently connected peers (peer JWT)
+  POST   /peers/disconnect   → 200  Signal graceful disconnect (peer JWT)
 
 All admin endpoints require Admin Bearer JWT (see auth.py).
 """
@@ -30,6 +31,7 @@ from services.wireguard import (
     generate_keypair,
     sync_wireguard,
 )
+from services.peer_status import is_explicitly_disconnected, mark_disconnected
 
 logger = logging.getLogger(__name__)
 
@@ -136,9 +138,12 @@ def _get_wg_peer_stats_raw() -> list[dict]:
         last_handshake_ts = int(parts[4]) if parts[4].isdigit() else 0
         last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
 
-        if last_handshake_ago is None or last_handshake_ago > 600:
+        # Check explicit disconnect registry first
+        if is_explicitly_disconnected(pub_key, last_handshake_ts):
             quality = "offline"
-        elif last_handshake_ago > 180:
+        elif last_handshake_ago is None or last_handshake_ago > 180:
+            quality = "offline"
+        elif last_handshake_ago > 60:
             quality = "warning"
         else:
             quality = "good"
@@ -191,6 +196,43 @@ async def list_online_peers(
             })
 
     return online
+
+
+# ── POST /peers/disconnect ─────────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/disconnect",
+    summary="Signal graceful VPN disconnect (peer JWT required)",
+    responses={200: {"description": "Disconnect recorded — peer will appear offline immediately"}},
+)
+async def peer_disconnect(
+    peer: Annotated[dict, Depends(get_peer_user)],
+) -> dict:
+    """Called by the client before disconnecting the WireGuard tunnel.
+
+    Stores the disconnect timestamp so the online-status logic can
+    immediately mark this peer as offline, instead of waiting for the
+    WireGuard handshake to time out (up to 3 minutes with shortened thresholds).
+    """
+    peer_id = peer.get("peer_id") or peer.get("sub")
+    if not peer_id:
+        raise HTTPException(status_code=400, detail="Invalid peer token")
+
+    # Look up the peer's public key from DB
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT public_key, name FROM peers WHERE id = ? AND revoked = 0",
+            (int(peer_id),),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Peer not found")
+
+    mark_disconnected(row["public_key"])
+    logger.info("Peer disconnect signal: id=%s name=%s", peer_id, row["name"])
+    return {"status": "ok", "message": f"Peer '{row['name']}' marked as disconnected"}
 
 
 # ── POST /peers ──────────────────────────────────────────────────────────────────────
