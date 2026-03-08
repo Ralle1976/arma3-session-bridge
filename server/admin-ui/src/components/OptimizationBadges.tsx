@@ -15,10 +15,10 @@ function Badge({ label, value, active, tooltip }: BadgeProps) {
   return (
     <div
       title={tooltip}
-      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium cursor-default select-none ${
+      className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium cursor-default select-none transition-all duration-200 hover:-translate-y-[1px] ${
         active
-          ? 'bg-green-900/30 border-green-700/50 text-green-300'
-          : 'bg-gray-800/50 border-gray-700/50 text-gray-500'
+          ? 'bg-[rgba(34,197,94,0.08)] border-[rgba(34,197,94,0.3)] text-green-300 shadow-[0_0_8px_rgba(34,197,94,0.1)]'
+          : 'bg-[rgba(20,32,50,0.6)] border-glass text-gray-500'
       }`}
     >
       <span className={`text-base ${active ? 'text-green-400' : 'text-gray-600'}`}>

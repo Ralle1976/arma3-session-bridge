@@ -27,10 +27,10 @@ export function formatBytes(bytes?: number): string {
 type CardColor = 'blue' | 'green' | 'yellow' | 'purple'
 
 const colorMap: Record<CardColor, string> = {
-  blue: 'text-blue-400 bg-blue-900/20 border-blue-800/40',
-  green: 'text-green-400 bg-green-900/20 border-green-800/40',
-  yellow: 'text-yellow-400 bg-yellow-900/20 border-yellow-800/40',
-  purple: 'text-purple-400 bg-purple-900/20 border-purple-800/40',
+  blue:   'text-blue-400 bg-[rgba(59,130,246,0.08)] border-[rgba(59,130,246,0.25)] shadow-[0_0_12px_rgba(59,130,246,0.12)]',
+  green:  'text-green-400 bg-[rgba(34,197,94,0.08)] border-[rgba(34,197,94,0.25)] shadow-[0_0_12px_rgba(34,197,94,0.12)]',
+  yellow: 'text-yellow-400 bg-[rgba(234,179,8,0.08)] border-[rgba(234,179,8,0.25)] shadow-[0_0_12px_rgba(234,179,8,0.12)]',
+  purple: 'text-purple-400 bg-[rgba(168,85,247,0.08)] border-[rgba(168,85,247,0.25)] shadow-[0_0_12px_rgba(168,85,247,0.12)]',
 }
 
 interface StatCardProps {
@@ -43,7 +43,7 @@ interface StatCardProps {
 function StatCard({ label, value, color = 'blue', sub }: StatCardProps) {
   const cls = colorMap[color]
   return (
-    <div className={`card border ${cls}`}>
+    <div className={`card border backdrop-blur-glass transition-all duration-300 hover:-translate-y-[2px] ${cls}`}>
       <p className="text-sm text-gray-500 mb-1">{label}</p>
       <p className={`text-3xl font-bold font-mono ${cls.split(' ')[0]}`}>{value}</p>
       {sub && <p className="text-xs text-gray-600 mt-1">{sub}</p>}

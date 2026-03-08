@@ -6,15 +6,17 @@ import AddPeerModal from '../components/AddPeerModal'
 function StatusBadge({ enabled }: { enabled: boolean }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
         enabled
-          ? 'bg-green-900/40 text-green-400 border border-green-800/50'
-          : 'bg-gray-800 text-gray-500 border border-gray-700'
+          ? 'bg-[rgba(34,197,94,0.1)] text-green-400 border-[rgba(34,197,94,0.35)]'
+          : 'bg-[rgba(20,32,50,0.5)] text-gray-500 border-glass'
       }`}
     >
       <span
-        className={`w-1.5 h-1.5 rounded-full ${
-          enabled ? 'bg-green-400 animate-pulse' : 'bg-gray-600'
+        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+          enabled
+            ? 'bg-green-400 animate-pulse shadow-[0_0_6px_rgba(34,197,94,0.7)]'
+            : 'bg-gray-600'
         }`}
       />
       {enabled ? 'Active' : 'Inactive'}
@@ -53,7 +55,7 @@ export default function PeersPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -99,7 +101,7 @@ export default function PeersPage() {
         {!isLoading && !isError && (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-800 bg-gray-800/40">
+              <tr className="bg-[rgba(14,24,37,0.6)] border-b border-glass-strong">
                 <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   Name
                 </th>
@@ -120,10 +122,10 @@ export default function PeersPage() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/60">
+            <tbody className="divide-y divide-[rgba(59,130,246,0.08)]">
               {peers && peers.length > 0 ? (
                 peers.map((peer) => (
-                  <tr key={peer.id} className="hover:bg-gray-800/30 transition-colors">
+                  <tr key={peer.id} className="hover:bg-[rgba(30,48,72,0.4)] transition-colors">
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-200">{peer.name}</p>
                     </td>
@@ -148,7 +150,7 @@ export default function PeersPage() {
                           onClick={() => handleDownload(peer)}
                           title="Download .conf"
                           aria-label={`Download config for ${peer.name}`}
-                          className="text-sm text-blue-400 hover:text-blue-300 transition-colors px-2 py-1 rounded-md hover:bg-gray-800"
+                          className="text-blue-400 hover:text-blue-300 px-2 py-1 rounded-md hover:bg-[rgba(59,130,246,0.12)] hover:shadow-[0_0_8px_rgba(59,130,246,0.2)] transition-all"
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -166,7 +168,7 @@ export default function PeersPage() {
                           disabled={deleteMutation.isPending}
                           title="Delete peer"
                           aria-label={`Delete peer ${peer.name}`}
-                          className="text-sm text-red-500 hover:text-red-400 transition-colors px-2 py-1 rounded-md hover:bg-red-900/20 disabled:opacity-50"
+                          className="text-red-500 hover:text-red-400 px-2 py-1 rounded-md hover:bg-[rgba(239,68,68,0.12)] hover:shadow-[0_0_8px_rgba(239,68,68,0.2)] transition-all disabled:opacity-50"
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -185,7 +187,7 @@ export default function PeersPage() {
                 <tr>
                   <td colSpan={6} className="px-6 py-16 text-center text-gray-600">
                     <svg
-                      className="w-10 h-10 mx-auto mb-3 text-gray-800"
+                      className="w-10 h-10 mx-auto mb-3 text-gray-700"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"

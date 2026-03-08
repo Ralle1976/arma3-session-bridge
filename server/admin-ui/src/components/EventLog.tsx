@@ -54,7 +54,7 @@ function EventRow({ event }: { event: LogEvent }) {
       : event.data
 
   return (
-    <div className="flex items-start gap-3 py-2 border-b border-gray-800/60 last:border-0 group hover:bg-gray-800/30 px-1 rounded transition-colors">
+    <div className="flex items-start gap-3 py-2 border-b border-glass last:border-0 group hover:bg-[rgba(30,48,72,0.4)] px-1 rounded transition-colors">
       <span className="text-gray-600 font-mono text-xs shrink-0 mt-0.5 w-20">
         {formatTime(event.timestamp)}
       </span>
@@ -135,7 +135,7 @@ export default function EventLog() {
           <div className="flex items-center gap-1.5">
             <span
               className={`w-2 h-2 rounded-full ${
-                connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'
+                connected ? 'bg-green-500 animate-pulse shadow-[0_0_6px_rgba(34,197,94,0.5)]' : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
               }`}
             />
             <span className="text-xs text-gray-500">{connected ? 'Live' : 'Disconnected'}</span>
@@ -147,7 +147,7 @@ export default function EventLog() {
               <span className="text-xs text-gray-700">·</span>
               <button
                 onClick={() => setEvents([])}
-                className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                className="text-xs text-gray-600 hover:text-blue-400 transition-colors"
               >
                 Clear
               </button>
@@ -161,7 +161,7 @@ export default function EventLog() {
         className="overflow-y-auto max-h-64 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent"
       >
         {events.length === 0 ? (
-          <div className="flex items-center justify-center h-24 border-2 border-dashed border-gray-800 rounded-lg">
+          <div className="flex items-center justify-center h-24 border-2 border-dashed border-glass-strong rounded-lg">
             <p className="text-gray-600 text-sm">
               {connected ? 'Waiting for events…' : 'Connecting to event stream…'}
             </p>

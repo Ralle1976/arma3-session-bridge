@@ -72,9 +72,9 @@ function SidebarContent({
   return (
     <>
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-gray-800">
+      <div className="px-6 py-5 border-b border-glass-strong">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gradient-to-b from-[#4b92ff] to-[#1d4ed8] shadow-glow-accent-sm">
             <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
               <path d="M9 12H7v2h2v-2zm0-4H7v2h2V8zm0-4H7v2h2V4zm4 8h-2v2h2v-2zm0-4h-2v2h2V8zm0-4h-2v2h2V4zM5 20H3V2h2v18zm12 0h-2V2h2v18z" />
             </svg>
@@ -102,10 +102,10 @@ function SidebarContent({
       </nav>
 
       {/* Footer */}
-      <div className="px-3 py-4 border-t border-gray-800">
+      <div className="px-3 py-4 border-t border-glass-strong">
         <button
           onClick={onLogout}
-          className="nav-link w-full text-red-400 hover:text-red-300 hover:bg-red-900/20"
+          className="nav-link w-full text-red-400 hover:text-red-300 hover:bg-red-900/20 hover:border-red-500/20"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -133,9 +133,9 @@ export default function Layout() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-950 overflow-hidden">
+    <div className="flex h-screen bg-base overflow-hidden">
       {/* ── Desktop Sidebar ── */}
-      <aside className="hidden md:flex w-64 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex-col">
+      <aside className="hidden md:flex w-64 flex-shrink-0 flex-col sidebar border-r border-glass-strong">
         <SidebarContent onLogout={handleLogout} />
       </aside>
 
@@ -147,14 +147,14 @@ export default function Layout() {
           onClick={closeSidebar}
         >
           {/* Backdrop */}
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-md" />
         </div>
       )}
 
       {/* ── Mobile Sidebar Drawer ── */}
       <aside
         className={[
-          'fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 border-r border-gray-800 flex flex-col',
+          'fixed inset-y-0 left-0 z-50 w-64 flex flex-col sidebar border-r border-glass-strong',
           'transform transition-transform duration-300 ease-in-out md:hidden',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         ].join(' ')}
@@ -173,7 +173,7 @@ export default function Layout() {
       {/* ── Main Content ── */}
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Mobile top bar */}
-        <header className="flex items-center gap-4 px-4 py-3 bg-gray-900 border-b border-gray-800 md:hidden">
+        <header className="flex items-center gap-4 px-4 py-3 border-b border-glass-strong md:hidden bg-[linear-gradient(180deg,rgba(12,20,34,0.97),rgba(8,14,24,0.98))]">
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="Open menu"

@@ -45,7 +45,7 @@ function CustomTooltip({
   if (!active || !payload?.length) return null
 
   return (
-    <div className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+    <div className="bg-[rgba(12,20,34,0.95)] backdrop-blur-xl border border-glass-strong rounded-lg px-3 py-2 text-xs shadow-glass-lg">
       <p className="text-gray-400 mb-1">{label != null ? formatTimeTick(label) : ''}</p>
       {payload.map((entry) => (
         <p key={entry.name} style={{ color: entry.color }} className="font-mono">
@@ -108,7 +108,7 @@ export default function TrafficChart() {
       </div>
 
       {!hasData ? (
-        <div className="h-48 flex items-center justify-center border-2 border-dashed border-gray-800 rounded-lg">
+        <div className="h-48 flex items-center justify-center border-2 border-dashed border-glass-strong rounded-lg">
           <div className="text-center">
             <svg
               className="w-10 h-10 text-gray-700 mx-auto mb-2"
@@ -129,7 +129,7 @@ export default function TrafficChart() {
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <LineChart data={history} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(59,130,246,0.06)" />
             <XAxis
               dataKey="time"
               type="number"

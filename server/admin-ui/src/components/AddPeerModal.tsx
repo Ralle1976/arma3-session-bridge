@@ -34,7 +34,7 @@ export default function AddPeerModal({ onClose }: AddPeerModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70 backdrop-blur-md"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -44,7 +44,7 @@ export default function AddPeerModal({ onClose }: AddPeerModalProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className="relative bg-gray-900 border border-gray-800 rounded-xl p-6 w-full max-w-md mx-4 shadow-xl"
+        className="relative bg-[linear-gradient(135deg,rgba(18,32,52,0.95),rgba(12,22,38,0.98))] backdrop-blur-xl border border-glass-strong rounded-xl p-6 w-full max-w-md mx-4 shadow-glass-float"
       >
         <div className="flex items-center justify-between mb-5">
           <h2 id="modal-title" className="text-lg font-semibold text-gray-100">
@@ -54,7 +54,7 @@ export default function AddPeerModal({ onClose }: AddPeerModalProps) {
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="text-gray-500 hover:text-gray-300 transition-colors"
+            className="text-gray-500 hover:text-gray-200 hover:bg-[rgba(30,48,72,0.5)] rounded-lg p-1 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -80,7 +80,7 @@ export default function AddPeerModal({ onClose }: AddPeerModalProps) {
           </div>
 
           {error && (
-            <div className="text-red-400 text-sm bg-red-900/20 border border-red-800/50 rounded-lg px-3 py-2">
+            <div className="text-red-400 text-sm bg-[rgba(239,68,68,0.07)] border border-[rgba(239,68,68,0.28)] backdrop-blur-sm rounded-lg px-3 py-2">
               {error}
             </div>
           )}
@@ -89,7 +89,7 @@ export default function AddPeerModal({ onClose }: AddPeerModalProps) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 rounded-lg border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600 transition-colors text-sm"
+              className="flex-1 px-4 py-2 rounded-lg border border-glass-strong text-gray-400 hover:text-gray-200 hover:border-glass-glow bg-[rgba(20,32,50,0.8)] transition-colors text-sm"
             >
               Cancel
             </button>

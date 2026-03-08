@@ -61,7 +61,7 @@ export default function SessionsPage() {
           <p className="text-gray-500 text-sm mt-1">
             Active &amp; historical VPN sessions
             {sessions && (
-              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-900/40 text-green-400 border border-green-800/50">
+              <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-[rgba(34,197,94,0.1)] text-green-400 border border-[rgba(34,197,94,0.35)]">
                 {activeSessions.length} active
               </span>
             )}
@@ -69,7 +69,7 @@ export default function SessionsPage() {
         </div>
         {/* SSE live indicator */}
         <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_6px_rgba(34,197,94,0.7)]" />
           Live
         </div>
       </div>
@@ -85,7 +85,7 @@ export default function SessionsPage() {
       )}
 
       {isError && (
-        <div className="card border-red-800/50 bg-red-900/10 text-red-400 text-sm">
+        <div className="card border-[rgba(239,68,68,0.3)] bg-[rgba(239,68,68,0.07)] text-red-400 text-sm">
           Failed to load sessions. API may be offline.
         </div>
       )}
@@ -100,9 +100,12 @@ export default function SessionsPage() {
               </h2>
               <div className="space-y-2">
                 {activeSessions.map((session) => (
-                  <div key={session.id} className="card border-green-800/30 bg-green-900/5 flex items-center justify-between">
+                  <div
+                    key={session.id}
+                    className="card border-[rgba(34,197,94,0.3)] bg-[rgba(22,90,50,0.12)] relative overflow-hidden flex items-center justify-between hover:-translate-y-[2px] transition-all duration-300 before:content-[''] before:absolute before:left-0 before:top-[20%] before:bottom-[20%] before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-green-400 before:to-transparent before:opacity-50"
+                  >
                     <div className="flex items-center gap-4">
-                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.7)]" />
                       <div>
                         <p className="font-medium text-gray-200">{session.peer_name}</p>
                         {session.arma_player && (
@@ -138,17 +141,17 @@ export default function SessionsPage() {
             <div className="card p-0 overflow-hidden overflow-x-auto">
               <table className="w-full min-w-[600px]">
                 <thead>
-                  <tr className="border-b border-gray-800 bg-gray-800/40">
+                  <tr className="bg-[rgba(14,24,37,0.6)] border-b border-glass-strong">
                     <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Peer</th>
                     <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Player</th>
                     <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Started</th>
                     <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Duration</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/60">
+                <tbody className="divide-y divide-[rgba(59,130,246,0.08)]">
                   {historySessions.length > 0 ? (
                     historySessions.slice(0, 50).map((session) => (
-                      <tr key={session.id} className="hover:bg-gray-800/30 transition-colors">
+                      <tr key={session.id} className="hover:bg-[rgba(30,48,72,0.4)] transition-colors">
                         <td className="px-6 py-3 text-sm font-medium text-gray-300">{session.peer_name}</td>
                         <td className="px-6 py-3 text-sm text-gray-500">{session.arma_player ?? '—'}</td>
                         <td className="px-6 py-3 text-sm text-gray-500">

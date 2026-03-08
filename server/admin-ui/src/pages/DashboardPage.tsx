@@ -76,12 +76,12 @@ export default function DashboardPage() {
 
       {/* Status Banner */}
       <div
-        className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium backdrop-blur-glass ${
           healthLoading
-            ? 'bg-gray-800 text-gray-400'
+            ? 'bg-raised/60 border border-glass text-gray-400'
             : healthError
-            ? 'bg-red-900/30 text-red-400 border border-red-800/50'
-            : 'bg-green-900/30 text-green-400 border border-green-800/50'
+            ? 'bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.4)] text-red-400 shadow-glow-red'
+            : 'bg-[rgba(22,90,50,0.3)] border border-[rgba(34,197,94,0.4)] text-green-400 shadow-glow-green'
         }`}
       >
         <span
@@ -89,8 +89,8 @@ export default function DashboardPage() {
             healthLoading
               ? 'bg-gray-500'
               : healthError
-              ? 'bg-red-500'
-              : 'bg-green-500 animate-pulse'
+              ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+              : 'bg-green-500 animate-pulse shadow-[0_0_6px_rgba(34,197,94,0.5)]'
           }`}
         />
         {healthLoading

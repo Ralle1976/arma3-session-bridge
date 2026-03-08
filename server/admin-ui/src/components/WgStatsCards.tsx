@@ -11,17 +11,17 @@ function formatHandshake(ago: number | null): string {
 
 function qualityColor(q: PeerStat['connection_quality']) {
   switch (q) {
-    case 'good':    return 'text-green-400 bg-green-900/20 border-green-700/40'
-    case 'warning': return 'text-yellow-400 bg-yellow-900/20 border-yellow-700/40'
-    case 'offline': return 'text-red-400 bg-red-900/20 border-red-700/40'
+    case 'good':    return 'text-green-400 bg-[rgba(34,197,94,0.06)] border-[rgba(34,197,94,0.3)] shadow-[0_0_10px_rgba(34,197,94,0.1)]'
+    case 'warning': return 'text-yellow-400 bg-[rgba(234,179,8,0.06)] border-[rgba(234,179,8,0.3)] shadow-[0_0_10px_rgba(234,179,8,0.1)]'
+    case 'offline': return 'text-red-400 bg-[rgba(239,68,68,0.06)] border-[rgba(239,68,68,0.3)] shadow-[0_0_10px_rgba(239,68,68,0.1)]'
   }
 }
 
 function qualityDot(q: PeerStat['connection_quality']) {
   switch (q) {
-    case 'good':    return 'bg-green-500 animate-pulse'
-    case 'warning': return 'bg-yellow-500'
-    case 'offline': return 'bg-red-500'
+    case 'good':    return 'bg-green-500 animate-pulse shadow-[0_0_6px_rgba(34,197,94,0.5)]'
+    case 'warning': return 'bg-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.5)]'
+    case 'offline': return 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
   }
 }
 
@@ -92,7 +92,7 @@ export default function WgStatsCards() {
 
   if (isLoading) {
     return (
-      <div className="card text-gray-500 text-sm animate-pulse">
+      <div className="card bg-raised/60 backdrop-blur-glass border border-glass text-gray-500 text-sm animate-pulse">
         Loading WireGuard peer stats…
       </div>
     )
