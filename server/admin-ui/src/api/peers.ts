@@ -26,7 +26,10 @@ export interface CreatePeerResponse {
 
 export async function listPeers(): Promise<Peer[]> {
   const res = await apiClient.get<Peer[]>('/peers')
-  return res.data
+  return res.data.map(peer => ({
+    ...peer,
+    enabled: peer.revoked !== undefined ? !peer.revoked : peer.enabled,
+  }))
 }
 
 export async function createPeer(name: string): Promise<CreatePeerResponse> {

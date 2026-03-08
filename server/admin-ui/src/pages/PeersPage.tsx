@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listPeers, deletePeer, downloadConfig, type Peer } from '../api/peers'
+import { listSessions } from '../api/sessions'
 import AddPeerModal from '../components/AddPeerModal'
 
 function StatusBadge({ enabled }: { enabled: boolean }) {
@@ -37,6 +38,16 @@ export default function PeersPage() {
     queryFn: listPeers,
     refetchInterval: 30_000,
   })
+
+  const { data: sessions } = useQuery({
+    queryKey: ['sessions'],
+    queryFn: listSessions,
+    refetchInterval: 30_000,
+  })
+
+  const activePeerIds = new Set<string>(
+    sessions?.filter((s) => s.active).map((s) => s.peer_id) ?? [],
+  )
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deletePeer(id),
@@ -127,7 +138,17 @@ export default function PeersPage() {
                 peers.map((peer) => (
                   <tr key={peer.id} className="hover:bg-[rgba(30,48,72,0.4)] transition-colors">
                     <td className="px-6 py-4">
-                      <p className="font-medium text-gray-200">{peer.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-gray-200">{peer.name}</p>
+                        {activePeerIds.has(peer.id) && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[rgba(245,158,11,0.15)] text-amber-400 border border-[rgba(245,158,11,0.35)]">
+                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                            </svg>
+                            Active Session
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 font-mono text-sm text-gray-400">
                       {peer.tunnel_ip}
@@ -165,10 +186,10 @@ export default function PeersPage() {
                         {/* Delete */}
                         <button
                           onClick={() => handleDelete(peer)}
-                          disabled={deleteMutation.isPending}
-                          title="Delete peer"
+                          disabled={deleteMutation.isPending || activePeerIds.has(peer.id)}
+                          title={activePeerIds.has(peer.id) ? 'Cannot delete: peer has an active session' : 'Delete peer'}
                           aria-label={`Delete peer ${peer.name}`}
-                          className="text-red-500 hover:text-red-400 px-2 py-1 rounded-md hover:bg-[rgba(239,68,68,0.12)] hover:shadow-[0_0_8px_rgba(239,68,68,0.2)] transition-all disabled:opacity-50"
+                          className="text-red-500 hover:text-red-400 px-2 py-1 rounded-md hover:bg-[rgba(239,68,68,0.12)] hover:shadow-[0_0_8px_rgba(239,68,68,0.2)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
