@@ -7,10 +7,13 @@ Responsibilities:
   - get_peer_status()    → parse `wg show wg0` output
 """
 
+import logging
 import os
 import subprocess
 import tempfile
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
 WG_SERVER_PUBLIC_KEY = os.getenv("WG_SERVER_PUBLIC_KEY", "")
@@ -48,16 +51,16 @@ def generate_keypair() -> tuple[str, str]:
         raise RuntimeError(f"WireGuard keypair generation failed: {exc}") from exc
 
 
-def _build_wg_conf(peers: list[dict]) -> str:
+def _build_wg_conf(peers: list[dict], server_private_key: str) -> str:
     """Build a wg0.conf content string for the server.
 
     Args:
         peers: List of peer dicts with keys: public_key, tunnel_ip, allowed_ips
+        server_private_key: The server's WireGuard private key.
 
     Returns:
         wg0.conf content as string (Interface section + Peer sections).
     """
-    server_private_key = os.getenv("WG_SERVER_PRIVATE_KEY", "")
     lines = [
         "[Interface]",
         f"PrivateKey = {server_private_key}",
@@ -71,6 +74,7 @@ def _build_wg_conf(peers: list[dict]) -> str:
             "[Peer]",
             f"PublicKey = {peer['public_key']}",
             f"AllowedIPs = {peer['tunnel_ip']}/32",
+            "PersistentKeepalive = 25",
             "",
         ]
     return "\n".join(lines)
@@ -81,6 +85,9 @@ def sync_wireguard(peers: list[dict]) -> None:
 
     Uses `wg syncconf` (no downtime!) instead of restarting the container.
     IMPORTANT: wg syncconf only accepts [Peer] sections — NO [Interface] section!
+
+    After a successful syncconf, also persists a complete wg0.conf (with
+    [Interface] + all [Peer] sections) so peers survive container restarts.
 
     Args:
         peers: List of active (non-revoked) peer dicts.
@@ -95,6 +102,7 @@ def sync_wireguard(peers: list[dict]) -> None:
             "[Peer]",
             f"PublicKey = {peer['public_key']}",
             f"AllowedIPs = {peer['tunnel_ip']}/32",
+            "PersistentKeepalive = 25",
             "",
         ]
     conf_content = "\n".join(lines)
@@ -155,11 +163,63 @@ def sync_wireguard(peers: list[dict]) -> None:
             raise RuntimeError(
                 f"wg set listen-port failed (rc={listen_result.returncode}): {listen_result.stderr}"
             )
+
+        # ── Persist wg0.conf so peers survive container restarts ──────────────
+        try:
+            pk_result = subprocess.run(
+                ["docker", "exec", WG_CONTAINER, "cat", "/config/server_privatekey"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if pk_result.returncode != 0 or not pk_result.stdout.strip():
+                logger.warning(
+                    "Could not read server_privatekey: rc=%d stderr=%s",
+                    pk_result.returncode,
+                    pk_result.stderr.strip(),
+                )
+            else:
+                full_conf = _build_wg_conf(
+                    peers, server_private_key=pk_result.stdout.strip()
+                )
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".conf", prefix="wg0full_", delete=False
+                ) as tmp_full:
+                    tmp_full.write(full_conf)
+                    tmp_full_path = tmp_full.name
+
+                try:
+                    cp2_result = subprocess.run(
+                        [
+                            "docker",
+                            "cp",
+                            tmp_full_path,
+                            f"{WG_CONTAINER}:/config/wg_confs/wg0.conf",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                    )
+                    if cp2_result.returncode != 0:
+                        logger.warning(
+                            "docker cp wg0.conf failed (rc=%d): %s",
+                            cp2_result.returncode,
+                            cp2_result.stderr.strip(),
+                        )
+                    else:
+                        logger.info("wg0.conf persisted with %d peer(s)", len(peers))
+                finally:
+                    try:
+                        os.unlink(tmp_full_path)
+                    except OSError:
+                        pass
+        except Exception as exc:
+            logger.warning("wg0.conf persistence failed: %s", exc)
+        # ── End persistence block ─────────────────────────────────────────────
+
     finally:
         try:
-            import os as _os
-
-            _os.unlink(tmp_path)
+            os.unlink(tmp_path)
         except OSError:
             pass
 

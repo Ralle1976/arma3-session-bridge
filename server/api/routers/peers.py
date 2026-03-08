@@ -55,6 +55,7 @@ def _issue_peer_token(peer_id: int) -> str:
     secret = _os.getenv("JWT_SECRET", "")
     return _jwt.encode(payload, secret, algorithm="HS256")
 
+
 # ── Tunnel IP pool ─────────────────────────────────────────────────────────────
 # Server is 10.8.0.1; peers get .2 through .20 (max 19 peers)
 _TUNNEL_BASE = "10.8.0."
@@ -108,17 +109,21 @@ def _row_to_peer_response(row: Any) -> PeerResponse:
         revoked=bool(row["revoked"]),
     )
 
+
 # ── GET /peers/online ────────────────────────────────────────────────────────────────
 
 
 def _get_wg_peer_stats_raw() -> list[dict]:
     """Run `wg show wg0 dump` and parse per-peer stats (same logic as admin router)."""
     import subprocess, time as _time, os as _os
+
     wg_container = _os.getenv("WG_CONTAINER", "arma3-wireguard")
     try:
         result = subprocess.run(
             ["docker", "exec", wg_container, "wg", "show", "wg0", "dump"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return []
@@ -137,7 +142,9 @@ def _get_wg_peer_stats_raw() -> list[dict]:
             continue
         pub_key = parts[0]
         last_handshake_ts = int(parts[4]) if parts[4].isdigit() else 0
-        last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
+        last_handshake_ago = (
+            (now - last_handshake_ts) if last_handshake_ts > 0 else None
+        )
 
         # Check explicit disconnect registry first
         if is_explicitly_disconnected(pub_key, last_handshake_ts):
@@ -149,20 +156,30 @@ def _get_wg_peer_stats_raw() -> list[dict]:
         else:
             quality = "good"
 
-        peers.append({
-            "public_key": pub_key,
-            "connection_quality": quality,
-            "last_handshake_ago": last_handshake_ago,
-            "rx_bytes": int(parts[5]) if len(parts) > 5 and parts[5].isdigit() else 0,
-            "tx_bytes": int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0,
-        })
+        peers.append(
+            {
+                "public_key": pub_key,
+                "connection_quality": quality,
+                "last_handshake_ago": last_handshake_ago,
+                "rx_bytes": int(parts[5])
+                if len(parts) > 5 and parts[5].isdigit()
+                else 0,
+                "tx_bytes": int(parts[6])
+                if len(parts) > 6 and parts[6].isdigit()
+                else 0,
+            }
+        )
     return peers
 
 
 @router.get(
     "/online",
     summary="List currently connected peers (peer JWT required)",
-    responses={200: {"description": "List of online peers with name, tunnel IP, and connection quality"}},
+    responses={
+        200: {
+            "description": "List of online peers with name, tunnel IP, and connection quality"
+        }
+    },
 )
 async def list_online_peers(
     _peer: Annotated[dict, Depends(get_peer_user)],
@@ -191,12 +208,14 @@ async def list_online_peers(
     for row in rows:
         wg_info = wg_by_pubkey.get(row["public_key"])
         if wg_info and wg_info["connection_quality"] != "offline":
-            online.append({
-                "name": row["name"],
-                "tunnel_ip": row["tunnel_ip"],
-                "connection_quality": wg_info["connection_quality"],
-                "last_handshake_ago": wg_info["last_handshake_ago"],
-            })
+            online.append(
+                {
+                    "name": row["name"],
+                    "tunnel_ip": row["tunnel_ip"],
+                    "connection_quality": wg_info["connection_quality"],
+                    "last_handshake_ago": wg_info["last_handshake_ago"],
+                }
+            )
 
     return online
 
@@ -207,7 +226,9 @@ async def list_online_peers(
 @router.get(
     "/me",
     summary="Get own peer stats (peer JWT required)",
-    responses={200: {"description": "Own peer's traffic, quality, and handshake stats"}},
+    responses={
+        200: {"description": "Own peer's traffic, quality, and handshake stats"}
+    },
 )
 async def get_my_stats(
     peer: Annotated[dict, Depends(get_peer_user)],
@@ -266,7 +287,11 @@ async def get_my_stats(
 @router.post(
     "/disconnect",
     summary="Signal graceful VPN disconnect (peer JWT required)",
-    responses={200: {"description": "Disconnect recorded — peer will appear offline immediately"}},
+    responses={
+        200: {
+            "description": "Disconnect recorded — peer will appear offline immediately"
+        }
+    },
 )
 async def peer_disconnect(
     peer: Annotated[dict, Depends(get_peer_user)],
@@ -477,6 +502,7 @@ async def get_peer(
     responses={
         204: {"description": "Peer revoked and WireGuard synced"},
         404: {"description": "Peer not found or already revoked"},
+        409: {"description": "Peer has active session — cannot revoke"},
     },
 )
 async def revoke_peer(
@@ -497,6 +523,17 @@ async def revoke_peer(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Peer {peer_id} not found or already revoked",
             )
+        # Guard: prevent revoking a peer with an active session
+        session_check = await conn.execute(
+            "SELECT COUNT(*) as cnt FROM sessions WHERE peer_id = ? AND active = 1",
+            (peer_id,),
+        )
+        session_row = await session_check.fetchone()
+        if session_row and session_row["cnt"] > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Peer {peer_id} has {session_row['cnt']} active session(s). Close all sessions before revoking.",
+            )
 
         now = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         await conn.execute(
@@ -515,7 +552,6 @@ async def revoke_peer(
         logger.info("Peer revoked: id=%s name=%s", peer_id, row["name"])
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
 
 
 # ── POST /peers/register ───────────────────────────────────────────────────────
@@ -549,28 +585,32 @@ async def register_peer(
     async with get_connection() as conn:
         # 1. Name uniqueness check
         cursor = await conn.execute(
-            "SELECT id, tunnel_ip, revoked, public_key FROM peers WHERE name = ?", (body.name,)
+            "SELECT id, tunnel_ip, revoked, public_key FROM peers WHERE name = ?",
+            (body.name,),
         )
         existing = await cursor.fetchone()
-        
+
         if existing:
             # Peer name already exists
             if existing["revoked"] == 0:
                 # Active peer exists — only allow re-registration if caller provides
                 # the original peer token (proves they own the peer)
                 auth_header = request.headers.get("authorization", "")
-                
+
                 if auth_header.startswith("Bearer "):
                     # Try to decode the token and verify it matches this peer
                     try:
                         from jose import jwt as _jwt
+
                         token_payload = _jwt.decode(
                             auth_header[7:],
                             os.getenv("JWT_SECRET", ""),
-                            algorithms=["HS256"]
+                            algorithms=["HS256"],
                         )
                         # Check if token is for this peer
-                        if str(token_payload.get("peer_id") or token_payload.get("sub")) != str(existing["id"]):
+                        if str(
+                            token_payload.get("peer_id") or token_payload.get("sub")
+                        ) != str(existing["id"]):
                             raise HTTPException(
                                 status_code=status.HTTP_403_FORBIDDEN,
                                 detail="Dieser Peer-Name ist bereits vergeben. Bitte verwende deinen ursprünglichen Peer-Token für die Re-Registrierung.",
@@ -588,7 +628,7 @@ async def register_peer(
                         status_code=status.HTTP_409_CONFLICT,
                         detail=f"Peer '{body.name}' existiert bereits. Re-Registrierung nur mit ursprünglichem Peer-Token möglich.",
                     )
-            
+
             # Re-registration allowed: peer is revoked OR caller has valid token
             peer_id = existing["id"]
             tunnel_ip = existing["tunnel_ip"]
@@ -605,7 +645,9 @@ async def register_peer(
                 logger.warning("wg syncconf failed after re-registration: %s", exc)
             logger.info(
                 "Peer re-registered: name=%s ip=%s pubkey=%s",
-                body.name, tunnel_ip, body.public_key[:12] + "...",
+                body.name,
+                tunnel_ip,
+                body.public_key[:12] + "...",
             )
             config = build_client_config(
                 private_key="<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>",
@@ -670,7 +712,9 @@ async def register_peer(
 
         logger.info(
             "Self-service peer registered: name=%s ip=%s pubkey=%s",
-            body.name, tunnel_ip, body.public_key[:12] + "...",
+            body.name,
+            tunnel_ip,
+            body.public_key[:12] + "...",
         )
 
         # 5. Build .conf template (private key placeholder — client fills it in)
