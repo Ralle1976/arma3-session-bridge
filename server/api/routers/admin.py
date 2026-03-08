@@ -32,10 +32,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 JWT_SECRET = os.getenv("JWT_SECRET", "")
-BY|JWT_ALGORITHM = "HS256"
-KM|WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
-RB|
-KR|# Track server start time for uptime calculation
+JWT_ALGORITHM = "HS256"
+WG_CONTAINER = os.getenv("WG_CONTAINER", "arma3-wireguard")
+
 # Track server start time for uptime calculation
 _server_start_time: float = time.time()
 
