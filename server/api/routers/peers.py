@@ -10,7 +10,6 @@ Endpoints:
   GET    /peers/online       → 200  List currently connected peers (peer JWT)
   GET    /peers/me           → 200  Own peer stats: traffic, quality, handshake (peer JWT)
   POST   /peers/disconnect   → 200  Signal graceful disconnect (peer JWT)
-  POST   /peers/disconnect   → 200  Signal graceful disconnect (peer JWT)
 
 All admin endpoints require Admin Bearer JWT (see auth.py).
 """

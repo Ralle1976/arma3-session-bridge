@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getSettings, updateSettings, getVpnMode, setVpnMode } from '../api/settings';
 import { settingsTranslations, SettingsLang } from '../i18n/settingsTranslations';
+import { getCleanupStatus, triggerCleanup, type CleanupStatus } from '../api/peerCleanup';
 
 const RELEASE_URL = 'https://github.com/Ralle1976/arma3-session-bridge/releases/latest';
 
@@ -18,6 +19,10 @@ export default function SettingsPage() {
   const [vpnMode, setVpnModeState] = useState('arma3');
   const [vpnModeSaving, setVpnModeSaving] = useState(false);
   const [vpnModeMsg, setVpnModeMsg] = useState('');
+  const [cleanupStatus, setCleanupStatus] = useState<CleanupStatus | null>(null);
+  const [cleanupLoading, setCleanupLoading] = useState(false);
+  const [cleanupTriggering, setCleanupTriggering] = useState(false);
+  const [cleanupMsg, setCleanupMsg] = useState('');
   const [lang, setLang] = useState<SettingsLang>(
     () => (localStorage.getItem('admin-lang') as SettingsLang) || 'de'
   );
@@ -38,6 +43,8 @@ export default function SettingsPage() {
       setServerUrl(data.server_url);
       const modeData = await getVpnMode();
       setVpnModeState(modeData.mode);
+      const cleanupData = await getCleanupStatus();
+      setCleanupStatus(cleanupData);
     } catch {
       setError(t.errorLoading);
     } finally {
@@ -68,6 +75,18 @@ export default function SettingsPage() {
       setTimeout(() => setVpnModeMsg(''), 3000);
     } catch { setVpnModeMsg(t.vpnModeError); }
     finally { setVpnModeSaving(false); }
+  }
+
+  async function handleCleanupTrigger() {
+    setCleanupTriggering(true); setCleanupMsg('');
+    try {
+      const result = await triggerCleanup();
+      const msg = result.peers_revoked === 0 ? t.cleanupResultNone : `${t.cleanupResultSuccess}: ${result.peers_revoked} peers`;
+      setCleanupMsg('\u2705 ' + msg);
+      const freshStatus = await getCleanupStatus();
+      setCleanupStatus(freshStatus);
+    } catch { setCleanupMsg('\u274c ' + t.cleanupError); }
+    finally { setCleanupTriggering(false); }
   }
 
   function buildInviteText() {
@@ -329,6 +348,107 @@ Bei Problemen einfach melden.`;
           </button>
         </div>
         {vpnModeMsg && <div className="bg-[rgba(34,197,94,0.12)] text-green-500 border border-[rgba(34,197,94,0.3)] rounded-lg px-4 py-3 mb-4 text-sm">{vpnModeMsg}</div>}
+      </div>
+
+      {/* ── Peer Auto-Cleanup ───────────────────────────── */}
+      <div className="card mb-6">
+        <h2 className="text-gray-100 mb-2 text-lg font-semibold">{t.cleanupTitle}</h2>
+        <p className="text-gray-400 text-sm mb-5 leading-relaxed">
+          {t.cleanupDesc}
+        </p>
+
+        {cleanupStatus && (
+          <>
+            {/* Config row */}
+            <div className="flex gap-3 flex-wrap mb-5">
+              <div className="bg-[rgba(10,16,28,0.9)] rounded-lg px-3 py-2 border border-glass flex items-center gap-2">
+                <span className="text-gray-400 text-sm">{t.cleanupInterval}:</span>
+                <span className="text-gray-100 text-sm font-semibold">{cleanupStatus.interval_hours} {t.cleanupHours}</span>
+              </div>
+              <div className="bg-[rgba(10,16,28,0.9)] rounded-lg px-3 py-2 border border-glass flex items-center gap-2">
+                <span className="text-gray-400 text-sm">{t.cleanupThreshold}:</span>
+                <span className="text-gray-100 text-sm font-semibold">{cleanupStatus.threshold_days} {t.cleanupDays}</span>
+              </div>
+            </div>
+
+            {/* Stats row */}
+            <div className="flex gap-3 flex-wrap mb-5">
+              <div className="bg-[rgba(10,16,28,0.9)] rounded-lg px-3 py-2 border border-glass flex items-center gap-2">
+                <span className="text-gray-400 text-sm">{t.cleanupActivePeers}:</span>
+                <span className="text-gray-100 text-sm font-semibold">{cleanupStatus.total_active_peers}</span>
+              </div>
+              <div className="bg-[rgba(10,16,28,0.9)] rounded-lg px-3 py-2 border border-glass flex items-center gap-2">
+                <span className="text-gray-400 text-sm">{t.cleanupToRevoke}:</span>
+                <span className={`text-sm font-semibold ${cleanupStatus.peers_to_revoke > 0 ? 'text-red-400' : 'text-gray-100'}`}>
+                  {cleanupStatus.peers_to_revoke}
+                </span>
+              </div>
+            </div>
+
+            {/* Peer table */}
+            {cleanupStatus.peers.length === 0 ? (
+              <p className="text-gray-500 text-sm italic mb-5">{t.cleanupNoPeers}</p>
+            ) : (
+              <div className="rounded-xl overflow-hidden border border-glass mb-5">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-[rgba(14,24,37,0.6)] border-b border-glass-strong">
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium text-xs uppercase tracking-wider">{t.cleanupPeerName}</th>
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium text-xs uppercase tracking-wider">{t.cleanupPeerIp}</th>
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium text-xs uppercase tracking-wider">{t.cleanupPeerDays}</th>
+                      <th className="px-4 py-3 text-left text-gray-400 font-medium text-xs uppercase tracking-wider">{t.cleanupPeerStatus}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...cleanupStatus.peers]
+                      .sort((a, b) => b.days_inactive - a.days_inactive)
+                      .map(peer => (
+                        <tr key={peer.id} className="hover:bg-[rgba(30,48,72,0.4)] transition-colors border-b border-glass last:border-b-0">
+                          <td className="px-4 py-3 font-medium text-gray-200">{peer.name}</td>
+                          <td className="px-4 py-3 font-mono text-sm text-gray-400">{peer.tunnel_ip}</td>
+                          <td className="px-4 py-3 text-sm" style={{ color: peer.days_inactive > 20 ? '#ef4444' : peer.days_inactive > 7 ? '#f59e0b' : '#22c55e' }}>
+                            {peer.days_inactive}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+                              peer.would_revoke
+                                ? 'bg-[rgba(239,68,68,0.1)] text-red-400 border-[rgba(239,68,68,0.35)]'
+                                : 'bg-[rgba(34,197,94,0.1)] text-green-400 border-[rgba(34,197,94,0.35)]'
+                            }`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${peer.would_revoke ? 'bg-red-400' : 'bg-green-400'}`} />
+                              {peer.would_revoke ? t.cleanupPeerDanger : t.cleanupPeerSafe}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Action button */}
+        <div className="flex items-center gap-4 flex-wrap">
+          <button
+            className="btn-primary"
+            onClick={handleCleanupTrigger}
+            disabled={cleanupTriggering || cleanupLoading}
+          >
+            {cleanupTriggering ? t.cleanupTriggering : t.cleanupTrigger}
+          </button>
+        </div>
+
+        {/* Result message */}
+        {cleanupMsg && (
+          <div className={`mt-4 rounded-lg px-4 py-3 text-sm border ${
+            cleanupMsg.startsWith('\u274c')
+              ? 'bg-[rgba(239,68,68,0.12)] text-red-500 border-[rgba(239,68,68,0.3)]'
+              : 'bg-[rgba(34,197,94,0.12)] text-green-500 border-[rgba(34,197,94,0.3)]'
+          }`}>
+            {cleanupMsg}
+          </div>
+        )}
       </div>
     </div>
   );
