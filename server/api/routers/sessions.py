@@ -1,31 +1,22 @@
-"""
-sessions.py — FastAPI Session Registry Router for arma3-session-bridge.
+"""Session registry endpoints for hosting/joining Arma sessions."""
 
-Endpoints:
-  POST   /sessions                 — create session (PeerBearer JWT required)
-  GET    /sessions                 — list active sessions (public, no auth)
-  GET    /sessions/{id}            — get session by ID (public)
-  PUT    /sessions/{id}            — update session metadata (PeerBearer JWT required)
-  DELETE /sessions/{id}            — end session (PeerBearer JWT required)
-  PUT    /sessions/{id}/heartbeat  — update last_seen (PeerBearer JWT required)
+from __future__ import annotations
 
-Session lifecycle: waiting → active → ended
-"""
-
-import os
 import logging
+import os
+import asyncio
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel, Field
 
 from database import get_connection
 from models import SessionUpdate
 from services.event_bus import broadcast
-from services.event_bus import broadcast
+from services.host_probe import probe_udp
 
 logger = logging.getLogger(__name__)
 
@@ -37,18 +28,9 @@ JWT_ALGORITHM = "HS256"
 _security = HTTPBearer()
 
 
-# ---------------------------------------------------------------------------
-# Auth helpers
-# ---------------------------------------------------------------------------
-
-
 async def _require_peer(
     credentials: HTTPAuthorizationCredentials = Depends(_security),
 ) -> int:
-    """Validate PeerBearer JWT and return the peer_id (int).
-
-    Raises 401 if the token is invalid, 403 if the role is not 'peer'.
-    """
     try:
         payload = jwt.decode(
             credentials.credentials,
@@ -76,25 +58,20 @@ async def _require_peer(
         )
 
 
-# ---------------------------------------------------------------------------
-# Request / Response models
-# ---------------------------------------------------------------------------
-
-
 class SessionCreate(BaseModel):
-    mission_name: Optional[str] = Field(None, max_length=128, description="Mission file name")
-    max_players: int = Field(default=10, ge=1, le=256, description="Maximum player slots")
-    current_players: int = Field(default=0, ge=0, le=256, description="Current player count")
+    mission_name: Optional[str] = Field(None, max_length=128)
+    max_players: int = Field(default=10, ge=1, le=256)
+    current_players: int = Field(default=0, ge=0, le=256)
 
 
 class SessionResponse(BaseModel):
     id: int
     host_peer_id: int
     host_tunnel_ip: str
-    mission_name: Optional[str]
+    mission_name: str
     max_players: int
     current_players: int
-    status: str  # waiting | active | ended
+    status: str
     created_at: str
     last_seen: str
 
@@ -105,9 +82,15 @@ class HeartbeatResponse(BaseModel):
     status: str
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+class SessionProbeResponse(BaseModel):
+    session_id: int
+    host_tunnel_ip: str
+    game_port: int
+    query_port: int
+    reachable: bool
+    latency_ms: int | None = None
+    probed_port: int | None = None
+    error: str | None = None
 
 
 def _now_utc() -> str:
@@ -115,29 +98,39 @@ def _now_utc() -> str:
 
 
 async def _get_peer_tunnel_ip(peer_id: int) -> str:
-    """Look up the tunnel IP for a peer. Raises 404 if not found or revoked."""
     async with get_connection() as conn:
         cursor = await conn.execute(
             "SELECT tunnel_ip FROM peers WHERE id = ? AND revoked = 0",
             (peer_id,),
         )
         row = await cursor.fetchone()
+
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Peer {peer_id} not found or revoked",
         )
+
     return row["tunnel_ip"]
 
 
 async def _fetch_session(session_id: int) -> dict:
-    """Fetch a session row (joined with peer tunnel_ip). Raises 404 if absent."""
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
-            SELECT s.id, s.peer_id, p.tunnel_ip, s.mission, s.player_count,
-                   s.max_players, s.current_players, s.status,
-                   s.started_at, s.last_seen, s.active, s.ended_at
+            SELECT
+                s.id,
+                s.peer_id,
+                p.tunnel_ip,
+                s.mission_name,
+                s.map_name,
+                s.max_players,
+                s.current_players,
+                s.status,
+                s.started_at,
+                s.last_seen,
+                s.active,
+                s.ended_at
             FROM sessions s
             JOIN peers p ON p.id = s.peer_id
             WHERE s.id = ?
@@ -145,20 +138,23 @@ async def _fetch_session(session_id: int) -> dict:
             (session_id,),
         )
         row = await cursor.fetchone()
+
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session {session_id} not found",
         )
+
     return dict(row)
 
 
 def _row_to_response(row: dict) -> SessionResponse:
+    mission_name = row.get("mission_name") or row.get("map_name") or "Untitled Session"
     return SessionResponse(
         id=row["id"],
         host_peer_id=row["peer_id"],
-        host_tunnel_ip=row.get("tunnel_ip", ""),
-        mission_name=row.get("mission") or row.get("mission_name"),
+        host_tunnel_ip=row["tunnel_ip"],
+        mission_name=mission_name,
         max_players=row.get("max_players", 10),
         current_players=row.get("current_players", 0),
         status=row.get("status", "waiting"),
@@ -167,39 +163,44 @@ def _row_to_response(row: dict) -> SessionResponse:
     )
 
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
 @router.post(
     "",
     status_code=status.HTTP_201_CREATED,
     response_model=SessionResponse,
-    summary="Create a new game session (PeerBearer required)",
 )
 async def create_session(
     body: SessionCreate,
     peer_id: int = Depends(_require_peer),
 ) -> SessionResponse:
-    """Open a new Arma 3 session. Only authenticated peers may create sessions."""
     tunnel_ip = await _get_peer_tunnel_ip(peer_id)
     now = _now_utc()
+    initial_players = body.current_players if body.current_players > 0 else 1
 
     async with get_connection() as conn:
+        await conn.execute(
+            """
+            UPDATE sessions
+            SET active = 0,
+                status = 'ended',
+                ended_at = ?,
+                last_seen = ?
+            WHERE peer_id = ?
+              AND active = 1
+            """,
+            (now, now, peer_id),
+        )
         cursor = await conn.execute(
             """
             INSERT INTO sessions
-                (peer_id, mission, player_count, max_players, current_players,
+                (peer_id, mission_name, max_players, current_players,
                  status, started_at, last_seen, active)
-            VALUES (?, ?, ?, ?, ?, 'waiting', ?, ?, 1)
+            VALUES (?, ?, ?, ?, 'waiting', ?, ?, 1)
             """,
             (
                 peer_id,
                 body.mission_name,
-                body.current_players,
                 body.max_players,
-                body.current_players,
+                initial_players,
                 now,
                 now,
             ),
@@ -214,28 +215,30 @@ async def create_session(
         id=session_id,
         host_peer_id=peer_id,
         host_tunnel_ip=tunnel_ip,
-        mission_name=body.mission_name,
+        mission_name=body.mission_name or "Untitled Session",
         max_players=body.max_players,
-        current_players=body.current_players,
+        current_players=initial_players,
         status="waiting",
         created_at=now,
         last_seen=now,
     )
 
 
-@router.get(
-    "",
-    response_model=list[SessionResponse],
-    summary="List all active sessions (public)",
-)
+@router.get("", response_model=list[SessionResponse])
 async def list_sessions() -> list[SessionResponse]:
-    """Return all currently active sessions. No authentication required."""
     async with get_connection() as conn:
         cursor = await conn.execute(
             """
-            SELECT s.id, s.peer_id, p.tunnel_ip, s.mission, s.player_count,
-                   s.max_players, s.current_players, s.status,
-                   s.started_at, s.last_seen
+            SELECT
+                s.id,
+                s.peer_id,
+                p.tunnel_ip,
+                s.mission_name,
+                s.max_players,
+                s.current_players,
+                s.status,
+                s.started_at,
+                s.last_seen
             FROM sessions s
             JOIN peers p ON p.id = s.peer_id
             WHERE s.active = 1
@@ -244,30 +247,169 @@ async def list_sessions() -> list[SessionResponse]:
         )
         rows = await cursor.fetchall()
 
-    return [_row_to_response(dict(r)) for r in rows]
+    return [_row_to_response(dict(row)) for row in rows]
 
 
-@router.get(
-    "/{session_id}",
-    response_model=SessionResponse,
-    summary="Get a single active session by ID (public)",
-)
+@router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: int) -> SessionResponse:
-    """Return one active session. Used by clients to resolve host tunnel IP."""
     row = await _fetch_session(session_id)
+    if not row.get("active"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} is ended",
+        )
     return _row_to_response(row)
+
+
+@router.get("/{session_id}/probe", response_model=SessionProbeResponse)
+async def probe_session_host(
+    session_id: int,
+    game_port: int = Query(2302, ge=1, le=65535),
+    query_port: int | None = Query(None, ge=1, le=65535),
+    timeout_seconds: float = Query(1.2, ge=0.2, le=10.0),
+) -> SessionProbeResponse:
+    row = await _fetch_session(session_id)
+    if not row.get("active"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session {session_id} is ended",
+        )
+
+    host_ip = row["tunnel_ip"]
+    effective_query_port = query_port if query_port is not None else (game_port + 1)
+
+    result = await asyncio.to_thread(
+        probe_udp,
+        host_ip,
+        effective_query_port,
+        timeout_seconds,
+    )
+    probed_port = effective_query_port
+
+    if not result.reachable:
+        fallback = await asyncio.to_thread(
+            probe_udp,
+            host_ip,
+            game_port,
+            timeout_seconds,
+        )
+        if fallback.reachable:
+            result = fallback
+            probed_port = game_port
+
+    return SessionProbeResponse(
+        session_id=session_id,
+        host_tunnel_ip=host_ip,
+        game_port=game_port,
+        query_port=effective_query_port,
+        reachable=result.reachable,
+        latency_ms=result.latency_ms,
+        probed_port=probed_port if result.reachable else None,
+        error=result.error,
+    )
+
+
+@router.put("/{session_id}", response_model=SessionResponse)
+async def update_session(
+    session_id: int,
+    data: SessionUpdate,
+    peer_id: int = Depends(_require_peer),
+) -> SessionResponse:
+    row = await _fetch_session(session_id)
+
+    if row["peer_id"] != peer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update sessions you created",
+        )
+    if not row["active"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is already ended",
+        )
+
+    updates: list[str] = []
+    values: list[object] = []
+
+    if data.mission_name is not None:
+        updates.append("mission_name = ?")
+        values.append(data.mission_name)
+
+    if data.map_name is not None:
+        updates.append("map_name = ?")
+        values.append(data.map_name)
+
+    if data.player_count is not None:
+        updates.append("current_players = ?")
+        values.append(data.player_count)
+
+    if data.max_players is not None:
+        updates.append("max_players = ?")
+        values.append(data.max_players)
+
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one updatable field must be provided",
+        )
+
+    values.append(_now_utc())
+    values.append(session_id)
+
+    async with get_connection() as conn:
+        await conn.execute(
+            f"UPDATE sessions SET {', '.join(updates)}, last_seen = ? WHERE id = ?",
+            tuple(values),
+        )
+        await conn.commit()
+
+    updated = await _fetch_session(session_id)
+    logger.info("Session %s updated by peer %s", session_id, peer_id)
+    return _row_to_response(updated)
+
+
+@router.put("/{session_id}/heartbeat", response_model=HeartbeatResponse)
+async def session_heartbeat(
+    session_id: int,
+    peer_id: int = Depends(_require_peer),
+) -> HeartbeatResponse:
+    row = await _fetch_session(session_id)
+
+    if row["peer_id"] != peer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only heartbeat sessions you created",
+        )
+    if not row["active"]:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Session is already ended",
+        )
+
+    now = _now_utc()
+    new_status = (
+        "active" if row.get("status") == "waiting" else row.get("status", "active")
+    )
+
+    async with get_connection() as conn:
+        await conn.execute(
+            "UPDATE sessions SET last_seen = ?, status = ? WHERE id = ?",
+            (now, new_status, session_id),
+        )
+        await conn.commit()
+
+    return HeartbeatResponse(id=session_id, last_seen=now, status=new_status)
 
 
 @router.delete(
     "/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="End a session (PeerBearer required)",
+    response_class=Response,
 )
 async def delete_session(
     session_id: int,
     peer_id: int = Depends(_require_peer),
-) -> None:
-    """Terminate a game session. Only the session owner may delete it."""
+) -> Response:
     row = await _fetch_session(session_id)
 
     if row["peer_id"] != peer_id:
@@ -284,147 +426,11 @@ async def delete_session(
     now = _now_utc()
     async with get_connection() as conn:
         await conn.execute(
-            "UPDATE sessions SET active = 0, status = 'ended', ended_at = ? WHERE id = ?",
-            (now, session_id),
+            "UPDATE sessions SET active = 0, status = 'ended', ended_at = ?, last_seen = ? WHERE id = ?",
+            (now, now, session_id),
         )
         await conn.commit()
 
     broadcast("session_ended", {"session_id": session_id, "peer_id": peer_id})
     logger.info("Session %s ended by peer %s", session_id, peer_id)
-
-
-
-@router.put(
-    "/{session_id}",
-    response_model=SessionResponse,
-    summary="Update session metadata (mission, player count) — PeerBearer required",
-    responses={
-        200: {"description": "Session updated successfully"},
-        403: {"description": "Not authorized (not session owner)"},
-        404: {"description": "Session not found"},
-        409: {"description": "Session already ended"},
-    },
-)
-async def update_session(
-    session_id: int,
-    data: SessionUpdate,
-    peer_id: int = Depends(_require_peer),
-) -> SessionResponse:
-    """Update session metadata (mission name, max players, current player count).
-    
-    Only the session owner can update their session.
-    """
-    row = await _fetch_session(session_id)
-    
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session {session_id} not found",
-        )
-    
-    if row["peer_id"] != peer_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only update sessions you created",
-        )
-    
-    if not row["active"]:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Session is already ended",
-        )
-    
-    # Build dynamic update query with only provided fields
-    updates = []
-    values = []
-    
-    if data.mission_name is not None:
-        updates.append("mission_name = ?")
-        values.append(data.mission_name)
-    
-    if data.map_name is not None:
-        updates.append("map_name = ?")
-        values.append(data.map_name)
-    
-    if data.player_count is not None:
-        updates.append("current_players = ?")
-        values.append(data.player_count)
-    
-    if data.max_players is not None:
-        updates.append("max_players = ?")
-        values.append(data.max_players)
-    
-    if not updates:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one field (mission_name, map_name, player_count, max_players) must be provided",
-        )
-    
-    values.append(session_id)
-    
-    async with get_connection() as conn:
-        await conn.execute(
-            f"UPDATE sessions SET {', '.join(updates)} WHERE id = ?",
-            tuple(values),
-        )
-        await conn.commit()
-        
-        # Fetch updated session
-        updated_row = await _fetch_session(session_id)
-    
-    logger.info(
-        "Session %s updated by peer %s: %s",
-        session_id,
-        peer_id,
-        ", ".join(updates)
-    )
-    
-    return SessionResponse(
-        id=updated_row["id"],
-        peer_id=updated_row["peer_id"],
-        mission_name=updated_row["mission_name"],
-        map_name=updated_row["map_name"],
-        player_count=updated_row["current_players"],
-        max_players=updated_row["max_players"],
-        started_at=updated_row["started_at"],
-        ended_at=updated_row["ended_at"],
-        active=bool(updated_row["active"]),
-    )
-
-
-
-@router.put(
-    "/{session_id}/heartbeat",
-    response_model=HeartbeatResponse,
-    summary="Update session heartbeat (PeerBearer required)",
-)
-async def session_heartbeat(
-    session_id: int,
-    peer_id: int = Depends(_require_peer),
-) -> HeartbeatResponse:
-    """Update the last_seen timestamp to keep the session alive."""
-    row = await _fetch_session(session_id)
-
-    if row["peer_id"] != peer_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only heartbeat sessions you created",
-        )
-    if not row["active"]:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Session is already ended",
-        )
-
-    now = _now_utc()
-    # Transition from 'waiting' → 'active' on first heartbeat
-    new_status = "active" if row.get("status") == "waiting" else row.get("status", "active")
-
-    async with get_connection() as conn:
-        await conn.execute(
-            "UPDATE sessions SET last_seen = ?, status = ? WHERE id = ?",
-            (now, new_status, session_id),
-        )
-        await conn.commit()
-
-    return HeartbeatResponse(id=session_id, last_seen=now, status=new_status)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

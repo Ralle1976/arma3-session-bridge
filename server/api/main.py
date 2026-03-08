@@ -125,7 +125,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Arma3 Session Bridge API",
-    version="0.2.0",
+    version="0.2.1",
     description="WireGuard peer management and Arma3 session tracking.",
     lifespan=lifespan,
 )
@@ -184,7 +184,7 @@ app.include_router(vpn_mode_router, prefix="/api/v1", include_in_schema=False)
 )
 async def health() -> dict:
     """Returns `{"status": "ok"}` — used by Docker health checks and monitoring."""
-    return {"status": "ok", "version": "0.2.0"}
+    return {"status": "ok", "version": "0.2.1"}
 
 
 @app.get("/api/v1/health", include_in_schema=False)

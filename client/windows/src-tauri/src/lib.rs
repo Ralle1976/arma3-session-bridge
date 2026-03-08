@@ -57,10 +57,29 @@ where
     }
 }
 
+fn de_string_or_untitled<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match value {
+        serde_json::Value::String(s) => {
+            if s.trim().is_empty() {
+                Ok("Untitled Session".to_string())
+            } else {
+                Ok(s)
+            }
+        }
+        serde_json::Value::Null => Ok("Untitled Session".to_string()),
+        _ => Ok("Untitled Session".to_string()),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     #[serde(deserialize_with = "de_session_id")]
     pub id: String,
+    #[serde(deserialize_with = "de_string_or_untitled")]
     pub mission_name: String,
     pub host_tunnel_ip: String,
     pub current_players: u32,
@@ -300,6 +319,7 @@ async fn host_session(
     let body = serde_json::json!({
         "mission_name": mission_name,
         "max_players": max_players,
+        "current_players": 1,
     });
 
     let token = load_peer_token()
@@ -875,10 +895,14 @@ async fn get_my_stats() -> Result<MyPeerStats, String> {
 async fn ping_gateway() -> Result<PingResult, String> {
     let gateway = "10.8.0.1";
 
-    // Try ICMP ping first (Windows)
-    let ping_result = std::process::Command::new("ping")
-        .args(["-n", "1", "-w", "3000", gateway])
-        .output();
+    let mut ping_cmd = std::process::Command::new("ping");
+    ping_cmd.args(["-n", "1", "-w", "3000", gateway]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        ping_cmd.creation_flags(0x08000000);
+    }
+    let ping_result = ping_cmd.output();
 
     if let Ok(output) = ping_result {
         let stdout = String::from_utf8_lossy(&output.stdout);

@@ -17,7 +17,8 @@ from services.event_bus import broadcast
 logger = logging.getLogger(__name__)
 
 CLEANUP_INTERVAL_SECONDS = 30
-SESSION_TIMEOUT_MINUTES = 10  # Extended from 2 to 10 minutes for Arma 3 gameplay stability
+SESSION_TIMEOUT_MINUTES = 2
+
 
 async def cleanup_expired_sessions() -> int:
     """Mark sessions without heartbeat for > SESSION_TIMEOUT_MINUTES as ended.
@@ -33,7 +34,7 @@ async def cleanup_expired_sessions() -> int:
         # Find sessions that timed out
         cursor = await conn.execute(
             """
-            SELECT id, peer_id, mission
+            SELECT id, peer_id, mission_name
             FROM sessions
             WHERE active = 1
               AND last_seen IS NOT NULL
@@ -63,7 +64,9 @@ async def cleanup_expired_sessions() -> int:
 
         # Broadcast session_ended events
         for row in rows:
-            broadcast("session_ended", {"session_id": row["id"], "peer_id": row["peer_id"]})
+            broadcast(
+                "session_ended", {"session_id": row["id"], "peer_id": row["peer_id"]}
+            )
             logger.info("Session %s expired (no heartbeat) → ended", row["id"])
 
         return len(rows)

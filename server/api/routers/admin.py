@@ -27,6 +27,7 @@ from auth import get_admin_user
 from database import get_connection
 from services.event_bus import subscribe, unsubscribe
 from services.peer_status import is_explicitly_disconnected
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -43,9 +44,6 @@ def set_server_start_time(t: float) -> None:
     """Called from lifespan to record accurate startup time."""
     global _server_start_time
     _server_start_time = t
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +79,12 @@ def _parse_bytes(value: str) -> int:
     units = {
         "B": 1,
         "KiB": 1024,
-        "MiB": 1024 ** 2,
-        "GiB": 1024 ** 3,
-        "TiB": 1024 ** 4,
+        "MiB": 1024**2,
+        "GiB": 1024**3,
+        "TiB": 1024**4,
         "KB": 1000,
-        "MB": 1000 ** 2,
-        "GB": 1000 ** 3,
+        "MB": 1000**2,
+        "GB": 1000**3,
     }
     parts = value.strip().split()
     if len(parts) != 2:
@@ -146,8 +144,11 @@ def _parse_wg_dump(output: str) -> list[dict]:
         keepalive = int(parts[7]) if parts[7].isdigit() else 0
 
         import time as _time
+
         now = int(_time.time())
-        last_handshake_ago = (now - last_handshake_ts) if last_handshake_ts > 0 else None
+        last_handshake_ago = (
+            (now - last_handshake_ts) if last_handshake_ts > 0 else None
+        )
 
         # Check explicit disconnect registry first
         if is_explicitly_disconnected(pub_key, last_handshake_ts):
@@ -159,16 +160,18 @@ def _parse_wg_dump(output: str) -> list[dict]:
         else:
             quality = "good"
 
-        peers.append({
-            "public_key": pub_key,
-            "endpoint": endpoint,
-            "allowed_ips": allowed_ips,
-            "last_handshake_ago": last_handshake_ago,
-            "transfer_rx_bytes": rx_bytes,
-            "transfer_tx_bytes": tx_bytes,
-            "persistent_keepalive": keepalive,
-            "connection_quality": quality,
-        })
+        peers.append(
+            {
+                "public_key": pub_key,
+                "endpoint": endpoint,
+                "allowed_ips": allowed_ips,
+                "last_handshake_ago": last_handshake_ago,
+                "transfer_rx_bytes": rx_bytes,
+                "transfer_tx_bytes": tx_bytes,
+                "persistent_keepalive": keepalive,
+                "connection_quality": quality,
+            }
+        )
     return peers
 
 
@@ -177,7 +180,9 @@ def _get_wg_peer_stats() -> list[dict]:
     try:
         result = subprocess.run(
             ["docker", "exec", WG_CONTAINER, "wg", "show", "wg0", "dump"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode != 0:
             return []
@@ -228,6 +233,8 @@ class AdminSession(BaseModel):
     map_name: str | None = None
     player_count: int | None = None
     status: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -250,8 +257,8 @@ async def admin_sessions(_admin: dict = Depends(get_admin_user)) -> list[AdminSe
                 s.started_at,
                 s.ended_at,
                 s.active,
-                s.mission,
-                s.player_count,
+                s.mission_name,
+                s.current_players,
                 s.status
             FROM sessions s
             JOIN peers p ON p.id = s.peer_id
@@ -268,10 +275,15 @@ async def admin_sessions(_admin: dict = Depends(get_admin_user)) -> list[AdminSe
         duration: int | None = None
 
         try:
-            started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+            started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(
+                tzinfo=timezone.utc
+            )
             end_dt = (
-                datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-                if ended_str else now
+                datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(
+                    tzinfo=timezone.utc
+                )
+                if ended_str
+                else now
             )
             duration = max(0, int((end_dt - started_dt).total_seconds()))
         except Exception:
@@ -286,9 +298,9 @@ async def admin_sessions(_admin: dict = Depends(get_admin_user)) -> list[AdminSe
                 ended_at=ended_str,
                 duration_seconds=duration,
                 active=bool(row["active"]),
-                mission=row["mission"],
+                mission=row["mission_name"],
                 map_name=None,
-                player_count=row["player_count"],
+                player_count=row["current_players"],
                 status=row["status"],
                 arma_player=None,
             )
@@ -316,8 +328,8 @@ async def admin_session_by_id(
                 s.started_at,
                 s.ended_at,
                 s.active,
-                s.mission,
-                s.player_count,
+                s.mission_name,
+                s.current_players,
                 s.status
             FROM sessions s
             JOIN peers p ON p.id = s.peer_id
@@ -328,16 +340,23 @@ async def admin_session_by_id(
         row = await cursor.fetchone()
 
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Session not found"
+        )
 
     started_str = row["started_at"]
     ended_str = row["ended_at"]
     duration: int | None = None
     try:
-        started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        started_dt = datetime.strptime(started_str, "%Y-%m-%dT%H:%M:%S").replace(
+            tzinfo=timezone.utc
+        )
         end_dt = (
-            datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-            if ended_str else datetime.now(tz=timezone.utc)
+            datetime.strptime(ended_str, "%Y-%m-%dT%H:%M:%S").replace(
+                tzinfo=timezone.utc
+            )
+            if ended_str
+            else datetime.now(tz=timezone.utc)
         )
         duration = max(0, int((end_dt - started_dt).total_seconds()))
     except Exception:
@@ -351,9 +370,9 @@ async def admin_session_by_id(
         ended_at=ended_str,
         duration_seconds=duration,
         active=bool(row["active"]),
-        mission=row["mission"],
+        mission=row["mission_name"],
         map_name=None,
-        player_count=row["player_count"],
+        player_count=row["current_players"],
         status=row["status"],
         arma_player=None,
     )
@@ -413,6 +432,7 @@ async def admin_wg_stats(_admin: dict = Depends(get_admin_user)) -> WgStats:
         },
     )
 
+
 @router.get(
     "/events",
     summary="SSE stream of admin events (AdminBearer required)",
@@ -421,7 +441,9 @@ async def admin_wg_stats(_admin: dict = Depends(get_admin_user)) -> WgStats:
 async def admin_events(
     request: Request,
     token: str | None = None,
-    credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    credentials: HTTPAuthorizationCredentials | None = Depends(
+        HTTPBearer(auto_error=False)
+    ),
 ) -> StreamingResponse:
     """Stream Server-Sent Events for live admin monitoring.
     Accepts token via Authorization: Bearer header OR ?token= query param (for EventSource).
@@ -429,13 +451,19 @@ async def admin_events(
     # Resolve token: query param first (EventSource cannot set custom headers)
     raw_token = token or (credentials.credentials if credentials else None)
     if not raw_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token required")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token required"
+        )
     try:
         payload = jwt.decode(raw_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except JWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {exc}"
+        )
     if payload.get("role") != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required"
+        )
 
     async def event_generator() -> AsyncGenerator[str, None]:
         q = subscribe()
@@ -479,11 +507,14 @@ async def admin_events(
 async def trigger_peer_cleanup(_admin: dict = Depends(get_admin_user)) -> dict:
     """Manually run the 30-day inactive peer cleanup."""
     from services.peer_cleanup import cleanup_inactive_peers
+
     count = await cleanup_inactive_peers()
     return {
         "status": "ok",
         "peers_revoked": count,
-        "message": f"Cleanup complete: {count} peer(s) auto-revoked" if count else "No inactive peers found",
+        "message": f"Cleanup complete: {count} peer(s) auto-revoked"
+        if count
+        else "No inactive peers found",
     }
 
 
@@ -518,7 +549,9 @@ async def peer_cleanup_status(_admin: dict = Depends(get_admin_user)) -> dict:
 
         if last_activity_epoch is None:
             try:
-                created_dt = datetime.strptime(row["created_at"], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                created_dt = datetime.strptime(
+                    row["created_at"], "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=timezone.utc)
                 last_activity_epoch = int(created_dt.timestamp())
             except (ValueError, TypeError):
                 continue
@@ -526,13 +559,15 @@ async def peer_cleanup_status(_admin: dict = Depends(get_admin_user)) -> dict:
         days_inactive = (now_epoch - last_activity_epoch) / 86400
         would_revoke = last_activity_epoch < cutoff_epoch
 
-        candidates.append({
-            "id": row["id"],
-            "name": row["name"],
-            "tunnel_ip": row["tunnel_ip"],
-            "days_inactive": round(days_inactive, 1),
-            "would_revoke": would_revoke,
-        })
+        candidates.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "tunnel_ip": row["tunnel_ip"],
+                "days_inactive": round(days_inactive, 1),
+                "would_revoke": would_revoke,
+            }
+        )
 
     return {
         "interval_hours": round(CLEANUP_INTERVAL_SECONDS / 3600, 1),

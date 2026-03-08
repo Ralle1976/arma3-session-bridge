@@ -44,7 +44,17 @@ pub struct VpnStatus {
 /// or `wireguard.exe` exits non-zero.
 pub fn connect_vpn(conf_path: &str) -> Result<(), String> {
     install_wireguard_if_missing()?;
-    install_tunnel_service(conf_path)
+    install_tunnel_service(conf_path)?;
+
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(8) {
+        if get_tunnel_ip().is_ok() {
+            return Ok(());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(350));
+    }
+
+    Err("WireGuard-Dienst gestartet, aber keine Tunnel-IP gefunden. Bitte Endpoint/Firewall prüfen.".to_string())
 }
 
 /// Disconnect: uninstall the WireGuard tunnel service.
@@ -74,14 +84,16 @@ pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
         return Err("tunnel_name must not be empty".to_string());
     }
 
-    let connected = is_tunnel_running(tunnel_name);
+    let running = is_tunnel_running(tunnel_name);
 
-    let tunnel_ip = if connected {
+    let tunnel_ip = if running {
         // Best-effort: ignore if netsh fails (e.g. in tests)
         get_tunnel_ip().ok()
     } else {
         None
     };
+
+    let connected = running && tunnel_ip.is_some();
 
     Ok(VpnStatus {
         connected,
