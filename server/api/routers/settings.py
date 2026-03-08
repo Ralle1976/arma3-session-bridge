@@ -64,18 +64,36 @@ async def get_settings(request: Request, admin=Depends(get_admin_user)):
 
 @router.put("")
 async def update_settings(data: SettingsUpdate, admin=Depends(get_admin_user)):
+    """Update registration code with audit logging."""
     if len(data.registration_code) < 8:
         raise HTTPException(
             status_code=400,
             detail="Registrierungs-Code muss mindestens 8 Zeichen lang sein",
         )
+    
     async with get_connection() as conn:
+        # Get old code for audit log
+        cursor = await conn.execute(
+            "SELECT value FROM app_settings WHERE key = 'registration_code'"
+        )
+        old_row = await cursor.fetchone()
+        old_code = old_row[0] if old_row else os.getenv("PEER_REGISTRATION_CODE", "")
+        
+        # Update code
         await conn.execute(
             "INSERT OR REPLACE INTO app_settings (key, value, updated_at) "
             "VALUES ('registration_code', ?, CURRENT_TIMESTAMP)",
             (data.registration_code,),
         )
         await conn.commit()
+    
+    # Audit log
+    logger.info(
+        "Settings changed: registration_code updated by admin (old: %s... → new: %s...)",
+        old_code[:4] if old_code else "none",
+        data.registration_code[:4]
+    )
+    
     return {
         "message": "Einstellungen gespeichert",
         "registration_code": data.registration_code,
