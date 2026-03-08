@@ -1,15 +1,57 @@
-name: SSH Deploy via ProxyJump (Skeleton)
+name: Deploy to Production
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [master]
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Deploy via SSH (ProxyJump)
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            cd /opt/arma3-session-bridge
+            git fetch origin
+            git reset --hard origin/master
+            docker compose pull
+            docker compose up -d --build
+            docker image prune -f
+
+      - name: Health check
         run: |
-          echo "Skeleton deploy; configure SSH with ProxyJump: SSH via Jump-Host YOUR_JUMP_HOST -> YOUR_SERVER_IP"
+          sleep 10
+          curl -f https://${{ secrets.SERVER_HOST }}:8001/health || exit 1
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Notify Telegram on success
+        if: success()
+        uses: appleboy/telegram-action@v0.1.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ✅ Arma3 Session Bridge deployed successfully
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+
+      - name: Notify Telegram on failure
+        if: failure()
+        uses: appleboy/telegram-action@v0.1.0
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            ❌ Arma3 Session Bridge deployment failed
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            Check: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
