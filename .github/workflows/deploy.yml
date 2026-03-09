@@ -26,7 +26,7 @@ jobs:
       - name: Health check
         run: |
           sleep 10
-          curl -f https://${{ secrets.SERVER_HOST }}:8001/health || exit 1
+          curl -f http://${{ secrets.SERVER_HOST }}:8001/health || exit 1
 
   notify:
     needs: deploy
@@ -35,7 +35,7 @@ jobs:
     steps:
       - name: Notify Telegram on success
         if: success()
-        uses: appleboy/telegram-action@v0.1.0
+        uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -46,7 +46,7 @@ jobs:
 
       - name: Notify Telegram on failure
         if: failure()
-        uses: appleboy/telegram-action@v0.1.0
+        uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
