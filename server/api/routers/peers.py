@@ -149,9 +149,9 @@ def _get_wg_peer_stats_raw() -> list[dict]:
         # Check explicit disconnect registry first
         if is_explicitly_disconnected(pub_key, last_handshake_ts):
             quality = "offline"
-        elif last_handshake_ago is None or last_handshake_ago > 180:
+        elif last_handshake_ago is None or last_handshake_ago > 600:
             quality = "offline"
-        elif last_handshake_ago > 60:
+        elif last_handshake_ago > 180:
             quality = "warning"
         else:
             quality = "good"
@@ -352,7 +352,7 @@ async def diagnose_my_peer(
     wg_port = _os.getenv("WG_PORT", "51820")
 
     handshake_ago = wg_info["last_handshake_ago"] if wg_info else None
-    has_handshake = handshake_ago is not None and handshake_ago < 300
+    has_handshake = handshake_ago is not None and handshake_ago < 600
 
     return {
         "peer_name": row["name"],
@@ -392,7 +392,7 @@ async def peer_disconnect(
 
     Stores the disconnect timestamp so the online-status logic can
     immediately mark this peer as offline, instead of waiting for the
-    WireGuard handshake to time out (up to 3 minutes with shortened thresholds).
+    WireGuard handshake to time out (up to 10 minutes with current thresholds).
     """
     peer_id = peer.get("peer_id") or peer.get("sub")
     if not peer_id:

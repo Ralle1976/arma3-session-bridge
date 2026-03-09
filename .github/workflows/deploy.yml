@@ -22,6 +22,7 @@ jobs:
             docker compose pull
             docker compose up -d --build
             docker image prune -f
+            chmod +x scripts/wg-watchdog.sh || true
 
       - name: Health check (via SSH)
         uses: appleboy/ssh-action@v1

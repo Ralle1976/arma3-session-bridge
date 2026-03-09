@@ -196,5 +196,3 @@ async def get_peer_user(
         )
     
     return payload
-
-    return payload
