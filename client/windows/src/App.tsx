@@ -12,6 +12,7 @@ import { useTranslation } from './i18n/LanguageContext'
 import type { Session } from './components/SessionList'
 import type { OnlinePeer } from './components/OnlinePlayersList'
 import './App.css'
+import { DiagnosePanel } from './components/DiagnosePanel'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -22,7 +23,7 @@ const WG_CONF_PATH =
 const WG_TUNNEL_NAME =
   import.meta.env.VITE_WG_TUNNEL_NAME ?? 'arma3-session-bridge'
 
-type ActiveTab = 'sessions' | 'host'
+type ActiveTab = 'sessions' | 'host' | 'diagnose'
 type VpnStatus = 'connected' | 'disconnected' | 'connecting'
 
 // ─── App Component ──────────────────────────────────────────────────────────
@@ -48,6 +49,12 @@ function App() {
   const [myStats, setMyStats] = useState<MyPeerStats | null>(null)
   const [pingResult, setPingResult] = useState<PingResult | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [firewallResult, setFirewallResult] = useState<{
+    rules_added: string[]
+    rules_existed: string[]
+    success: boolean
+    error: string | null
+  } | null>(null)
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -186,6 +193,16 @@ function App() {
   }, [configValid, checkStatus, connect, disconnect])
 
   useEffect(() => {
+    const unlisten = listen<{ rules_added: string[]; rules_existed: string[]; success: boolean; error: string | null }>(
+      'firewall-setup-result',
+      (event) => {
+        setFirewallResult(event.payload)
+      }
+    )
+    return () => { unlisten.then((f) => f()) }
+  }, [])
+
+  useEffect(() => {
     if (vpnStatus === 'connected') {
       refreshSessions()
     }
@@ -305,6 +322,49 @@ function App() {
         </div>
       )}
 
+      {/* Firewall Info Banner */}
+      {firewallResult !== null && firewallResult.rules_added.length > 0 && (
+        <div style={{
+          background: 'var(--accent, #2980b9)',
+          color: '#fff',
+          padding: '8px 16px',
+          fontSize: '0.875rem',
+          borderRadius: '4px',
+          margin: '8px 16px 0',
+        }}>
+          <div>{t.firewallRulesAdded}</div>
+          <ul style={{ margin: '4px 0 4px 16px', padding: 0 }}>
+            {firewallResult.rules_added.map((rule) => (
+              <li key={rule}>{rule}</li>
+            ))}
+          </ul>
+          <button
+            onClick={() => setFirewallResult(null)}
+            style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', cursor: 'pointer', borderRadius: 3, padding: '2px 8px', marginTop: 4 }}
+          >
+            {t.firewallDismiss}
+          </button>
+        </div>
+      )}
+      {firewallResult !== null && firewallResult.error !== null && (
+        <div style={{
+          background: 'var(--error, #c0392b)',
+          color: '#fff',
+          padding: '8px 16px',
+          fontSize: '0.875rem',
+          borderRadius: '4px',
+          margin: '8px 16px 0',
+        }}>
+          ⚠️ {t.firewallError.replace('{{error}}', firewallResult.error)}
+          <button
+            onClick={() => setFirewallResult(null)}
+            style={{ background: 'transparent', border: '1px solid #fff', color: '#fff', cursor: 'pointer', borderRadius: 3, padding: '2px 8px', marginLeft: 8 }}
+          >
+            {t.firewallDismiss}
+          </button>
+        </div>
+      )}
+
       {/* VPN Status Bar (persistent, visible when connected) */}
       {vpnStatus === 'connected' && (
         <VpnStatusBar
@@ -329,6 +389,12 @@ function App() {
         >
           {t.tabHost}
         </button>
+        <button
+          className={`tab-btn ${tab === 'diagnose' ? 'active' : ''}`}
+          onClick={() => setTab('diagnose')}
+        >
+          {t.tabDiagnose}
+        </button>
       </div>
 
       {/* Connection Info Panel (shown when VPN connected and panel toggled open) */}
@@ -352,7 +418,7 @@ function App() {
             onlinePeers={onlinePeers}
             peersLoading={peersLoading}
           />
-        ) : (
+        ) : tab === 'host' ? (
           <HostSessionForm
             vpnConnected={vpnStatus === 'connected'}
             onSessionCreated={(session) => {
@@ -362,6 +428,8 @@ function App() {
             }}
             onSessionCleared={() => setHostedSessionId(null)}
           />
+        ) : (
+          <DiagnosePanel vpnConnected={vpnStatus === 'connected'} tunnelIp={tunnelIp} />
         )}
       </div>
     </div>
