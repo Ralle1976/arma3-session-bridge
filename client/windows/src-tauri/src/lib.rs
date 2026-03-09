@@ -129,6 +129,23 @@ pub struct PingResult {
     pub latency_ms: Option<u64>,
     pub reachable: bool,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirewallSetupResult {
+    pub rules_added: Vec<String>,
+    pub rules_existed: Vec<String>,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Result of a peer-to-peer ping/latency measurement inside the VPN tunnel.
+#[derive(Debug, Clone, Serialize)]
+pub struct PeerPingResult {
+    pub ip: String,
+    pub latency_ms: Option<u64>,
+    pub reachable: bool,
+    pub packet_loss_pct: u8,
+}
 // ─── API URL Helpers ───────────────────────────────────────────────────────────
 
 /// Load the API base URL from the persisted config file.
@@ -203,6 +220,19 @@ async fn connect_vpn(
     conf_path: String,
 ) -> Result<String, String> {
     vpn::connect_vpn(&conf_path)?;
+    // Spawn firewall setup non-blocking — must not delay connect response
+    let app_fw = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let fw_result = tokio::task::spawn_blocking(setup_firewall_rules_internal)
+            .await
+            .unwrap_or_else(|e| FirewallSetupResult {
+                rules_added: vec![],
+                rules_existed: vec![],
+                success: false,
+                error: Some(e.to_string()),
+            });
+        let _ = app_fw.emit("firewall-setup-result", fw_result);
+    });
     let ip = vpn::get_tunnel_ip().unwrap_or_else(|_| "connected".to_string());
     // Save conf_path for auto-reconnect
     {
@@ -963,6 +993,146 @@ fn parse_ping_ms(output: &str) -> Option<u64> {
     None
 }
 
+// ─── Firewall Setup ───────────────────────────────────────────────────────────
+
+/// Run PowerShell to idempotently create 3 Windows Firewall rules for Arma 3 VPN.
+/// Returns `FirewallSetupResult` — never returns `Err`; errors are encoded in the result.
+fn setup_firewall_rules_internal() -> FirewallSetupResult {
+    let script = r#"
+$rules_added = @()
+$rules_existed = @()
+
+$defs = @(
+    @{Name="Arma3SB-VPNInbound"; Direction="Inbound"; RemoteAddress="10.8.0.0/24"; Protocol="Any"},
+    @{Name="Arma3SB-GamePorts"; Direction="Inbound"; Protocol="UDP"; LocalPort="2302-2306"},
+    @{Name="Arma3SB-WGOutbound"; Direction="Outbound"; Protocol="UDP"; RemotePort="51820"}
+)
+
+foreach ($def in $defs) {
+    $existing = Get-NetFirewallRule -DisplayName $def.Name -ErrorAction SilentlyContinue
+    if ($existing) {
+        $rules_existed += $def.Name
+    } else {
+        $params = @{
+            DisplayName = $def.Name
+            Direction   = $def.Direction
+            Action      = "Allow"
+            Profile     = "Any"
+            Enabled     = "True"
+        }
+        if ($def.Protocol -ne "Any") { $params.Protocol = $def.Protocol }
+        if ($def.RemoteAddress) { $params.RemoteAddress = $def.RemoteAddress }
+        if ($def.LocalPort) { $params.LocalPort = $def.LocalPort }
+        if ($def.RemotePort) { $params.RemotePort = $def.RemotePort }
+        New-NetFirewallRule @params | Out-Null
+        $rules_added += $def.Name
+    }
+}
+
+[pscustomobject]@{rules_added=$rules_added; rules_existed=$rules_existed; success=$true; error=$null} | ConvertTo-Json -Compress
+"#;
+
+    let mut cmd = std::process::Command::new("powershell");
+    cmd.args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000_u32);
+    }
+
+    let output = match cmd.output() {
+        Ok(o) => o,
+        Err(e) => {
+            return FirewallSetupResult {
+                rules_added: vec![],
+                rules_existed: vec![],
+                success: false,
+                error: Some(format!("Firewall-Regeln konnten nicht gesetzt werden. Bitte als Administrator ausführen.: {e}")),
+            };
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if stderr.contains("Access is denied") || stderr.contains("Zugriff verweigert") {
+        return FirewallSetupResult {
+            rules_added: vec![],
+            rules_existed: vec![],
+            success: false,
+            error: Some("Firewall-Regeln konnten nicht gesetzt werden. Bitte als Administrator ausführen.".to_string()),
+        };
+    }
+
+    match serde_json::from_str::<FirewallSetupResult>(&stdout) {
+        Ok(result) => result,
+        Err(_) => FirewallSetupResult {
+            rules_added: vec![],
+            rules_existed: vec![],
+            success: false,
+            error: Some("Firewall-Regeln konnten nicht gesetzt werden. Bitte als Administrator ausführen.".to_string()),
+        },
+    }
+}
+
+/// Expose `setup_firewall_rules_internal` as a Tauri command (async wrapper).
+#[tauri::command]
+async fn setup_firewall_rules() -> Result<FirewallSetupResult, String> {
+    tokio::task::spawn_blocking(setup_firewall_rules_internal)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ─── Peer Ping Command ────────────────────────────────────────────────────────
+
+/// Ping a specific peer inside the WireGuard tunnel (10.8.0.x) and return latency.
+///
+/// Invoked from frontend: `invoke('ping_peer', { tunnelIp: '10.8.0.x' })`
+#[tauri::command]
+async fn ping_peer(tunnel_ip: String) -> Result<PeerPingResult, String> {
+    if !tunnel_ip.starts_with("10.8.0.") {
+        return Err(format!("Ungültige Tunnel-IP: muss 10.8.0.x sein, bekam: {tunnel_ip}"));
+    }
+
+    let ip = tunnel_ip.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new("ping");
+        cmd.args(["-n", "1", "-w", "5000", &ip]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000_u32);
+        }
+        let output = cmd.output().map_err(|e| format!("ping failed: {e}"))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok::<String, String>(stdout)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let latency_ms = parse_ping_ms(&result);
+
+    // Parse packet loss: "0% loss" or "0% Verlust"
+    let packet_loss_pct: u8 = result.lines()
+        .find(|l| {
+            let lo = l.to_lowercase();
+            lo.contains("loss") || lo.contains("verlust")
+        })
+        .and_then(|l| {
+            l.split_whitespace()
+                .find(|w| w.ends_with('%'))
+                .and_then(|w| w.trim_end_matches('%').parse::<u8>().ok())
+        })
+        .unwrap_or(if latency_ms.is_some() { 0 } else { 100 });
+
+    Ok(PeerPingResult {
+        ip: tunnel_ip,
+        latency_ms,
+        reachable: latency_ms.is_some(),
+        packet_loss_pct,
+    })
+}
+
 // ─── Application Entry ─────────────────────────────────────────────────────────
 
 /// Build and run the Tauri application.
@@ -1130,6 +1300,8 @@ pub fn run() {
             notify_disconnect,
             get_my_stats,
             ping_gateway,
+            setup_firewall_rules,
+            ping_peer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
