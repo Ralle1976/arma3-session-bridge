@@ -23,10 +23,16 @@ jobs:
             docker compose up -d --build
             docker image prune -f
 
-      - name: Health check
-        run: |
-          sleep 10
-          curl -f http://${{ secrets.SERVER_HOST }}:8001/health || exit 1
+      - name: Health check (via SSH)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            sleep 5
+            API_IP=$(docker inspect arma3-api --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}')
+            curl -sf http://$API_IP:8000/health || exit 1
 
   notify:
     needs: deploy
