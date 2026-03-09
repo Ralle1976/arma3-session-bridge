@@ -10,6 +10,8 @@
 ///   - `run()` — entry point called from main.rs
 
 pub mod vpn;
+pub mod tunnel;
+pub mod native_ping;
 
 use std::sync::Arc;
 
@@ -924,26 +926,15 @@ async fn get_my_stats() -> Result<MyPeerStats, String> {
 #[tauri::command]
 async fn ping_gateway() -> Result<PingResult, String> {
     let gateway = "10.8.0.1";
+    let addr: std::net::Ipv4Addr = gateway.parse().unwrap();
 
-    let mut ping_cmd = std::process::Command::new("ping");
-    ping_cmd.args(["-n", "1", "-w", "3000", gateway]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        ping_cmd.creation_flags(0x08000000);
-    }
-    let ping_result = ping_cmd.output();
-
-    if let Ok(output) = ping_result {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        // Parse "time=15ms" (EN) or "Zeit=15ms" (DE)
-        if let Some(ms) = parse_ping_ms(&stdout) {
-            return Ok(PingResult {
-                gateway_ip: gateway.to_string(),
-                latency_ms: Some(ms),
-                reachable: true,
-            });
-        }
+    // Try native ICMP ping first
+    if let Some(ms) = native_ping::ping(addr, 3000) {
+        return Ok(PingResult {
+            gateway_ip: gateway.to_string(),
+            latency_ms: Some(ms),
+            reachable: true,
+        });
     }
 
     // Fallback: HTTP latency to API through tunnel
@@ -971,27 +962,6 @@ async fn ping_gateway() -> Result<PingResult, String> {
     })
 }
 
-/// Parse ping latency from Windows ping output (EN + DE).
-fn parse_ping_ms(output: &str) -> Option<u64> {
-    for line in output.lines() {
-        let lower = line.to_lowercase();
-        if let Some(pos) = lower.find("time=").or_else(|| lower.find("zeit=")) {
-            let after = &lower[pos..];
-            let num_start = after.find('=').map(|i| i + 1)?;
-            let num_str: String = after[num_start..]
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
-            if !num_str.is_empty() {
-                return num_str.parse::<u64>().ok();
-            }
-        }
-        if lower.contains("time<1ms") || lower.contains("zeit<1ms") {
-            return Some(0);
-        }
-    }
-    None
-}
 
 // ─── Firewall Setup ───────────────────────────────────────────────────────────
 
@@ -1094,41 +1064,17 @@ async fn ping_peer(tunnel_ip: String) -> Result<PeerPingResult, String> {
         return Err(format!("Ungültige Tunnel-IP: muss 10.8.0.x sein, bekam: {tunnel_ip}"));
     }
 
-    let ip = tunnel_ip.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        let mut cmd = std::process::Command::new("ping");
-        cmd.args(["-n", "1", "-w", "5000", &ip]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000_u32);
-        }
-        let output = cmd.output().map_err(|e| format!("ping failed: {e}"))?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok::<String, String>(stdout)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let addr: std::net::Ipv4Addr = tunnel_ip.parse()
+        .map_err(|e| format!("Invalid IP: {e}"))?;
 
-    let latency_ms = parse_ping_ms(&result);
-
-    // Parse packet loss: "0% loss" or "0% Verlust"
-    let packet_loss_pct: u8 = result.lines()
-        .find(|l| {
-            let lo = l.to_lowercase();
-            lo.contains("loss") || lo.contains("verlust")
-        })
-        .and_then(|l| {
-            l.split_whitespace()
-                .find(|w| w.ends_with('%'))
-                .and_then(|w| w.trim_end_matches('%').parse::<u8>().ok())
-        })
-        .unwrap_or(if latency_ms.is_some() { 0 } else { 100 });
+    let latency_ms = native_ping::ping(addr, 5000);
+    let reachable = latency_ms.is_some();
+    let packet_loss_pct: u8 = if reachable { 0 } else { 100 };
 
     Ok(PeerPingResult {
         ip: tunnel_ip,
         latency_ms,
-        reachable: latency_ms.is_some(),
+        reachable,
         packet_loss_pct,
     })
 }
@@ -1172,7 +1118,7 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
     let mut server_public_key: Option<String> = None;
 
     // ── Check 1: WireGuard installed ─────────────────────────────────────────
-    let wg_installed = vpn::wireguard_is_present();
+    let wg_installed = true; // Embedded WireGuard tunnel — always available
     steps.push(DiagStep {
         id: "wg_installed".into(),
         label: "WireGuard installed".into(),
@@ -1301,7 +1247,7 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
     });
 
     // ── Check 5: Service running ─────────────────────────────────────────────
-    let service_running = vpn::is_tunnel_running("arma3-session-bridge");
+    let service_running = vpn::check_vpn_status("arma3-session-bridge").map(|s| s.connected).unwrap_or(false);
     steps.push(DiagStep {
         id: "service_running".into(),
         label: "WireGuard service running".into(),
@@ -1367,43 +1313,23 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
 
     // ── Check 8: Gateway ping ────────────────────────────────────────────────
     {
-        let mut cmd = std::process::Command::new("ping");
-        cmd.args(["-n", "1", "-w", "3000", "10.8.0.1"]);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x08000000);
-        }
-        match cmd.output() {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                let ms = parse_ping_ms(&stdout);
-                let reachable = ms.is_some();
-                steps.push(DiagStep {
-                    id: "gateway_ping".into(),
-                    label: "Gateway 10.8.0.1 reachable".into(),
-                    status: if reachable { "pass" } else { "fail" }.into(),
-                    detail: Some(if let Some(latency) = ms {
-                        format!("Gateway responded in {}ms", latency)
-                    } else {
-                        "Gateway 10.8.0.1 unreachable — tunnel may not be established".into()
-                    }),
-                    fix_action: if reachable { None } else { Some("reconnect".into()) },
-                });
-                if !reachable {
-                    problems.push("Gateway 10.8.0.1 unreachable".into());
-                    suggestions.push("Check if another VPN or firewall blocks outbound UDP 51820".into());
-                }
-            }
-            Err(e) => {
-                steps.push(DiagStep {
-                    id: "gateway_ping".into(),
-                    label: "Gateway 10.8.0.1 reachable".into(),
-                    status: "skip".into(),
-                    detail: Some(format!("Could not run ping: {}", e)),
-                    fix_action: None,
-                });
-            }
+        let addr: std::net::Ipv4Addr = "10.8.0.1".parse().unwrap();
+        let ms = native_ping::ping(addr, 3000);
+        let reachable = ms.is_some();
+        steps.push(DiagStep {
+            id: "gateway_ping".into(),
+            label: "Gateway 10.8.0.1 reachable".into(),
+            status: if reachable { "pass" } else { "fail" }.into(),
+            detail: Some(if let Some(latency) = ms {
+                format!("Gateway responded in {}ms", latency)
+            } else {
+                "Gateway 10.8.0.1 unreachable — tunnel may not be established".into()
+            }),
+            fix_action: if reachable { None } else { Some("reconnect".into()) },
+        });
+        if !reachable {
+            problems.push("Gateway 10.8.0.1 unreachable".into());
+            suggestions.push("Check if another VPN or firewall blocks outbound UDP 51820".into());
         }
     }
 
@@ -1757,7 +1683,7 @@ pub fn run() {
                             .and_then(|s| s.to_str())
                             .unwrap_or("arma3-session-bridge")
                             .to_string();
-                        if !vpn::is_tunnel_running(&tunnel_name) {
+                        if !vpn::check_vpn_status(&tunnel_name).map(|s| s.connected).unwrap_or(false) {
                             match vpn::connect_vpn(conf_path) {
                                 Ok(()) => {
                                     let ip = vpn::get_tunnel_ip()
