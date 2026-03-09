@@ -281,6 +281,98 @@ async def get_my_stats(
     }
 
 
+# ── GET /peers/me/diagnose ────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/me/diagnose",
+    summary="Deep connectivity diagnostic for calling peer (peer JWT required)",
+    responses={
+        200: {"description": "Server-side diagnostic: handshake, endpoint, key match, WG state"},
+    },
+)
+async def diagnose_my_peer(
+    peer: Annotated[dict, Depends(get_peer_user)],
+) -> dict:
+    """Return server-side diagnostic snapshot for the calling peer.
+
+    The client's deep_diagnose command calls this to compare its local state
+    with what the server actually sees (handshake timing, endpoint, traffic).
+    This is the ONLY way the client can verify the VPN tunnel is truly working.
+    """
+    import os as _os
+    import subprocess as _subprocess
+    import time as _time
+
+    peer_id = peer.get("peer_id") or peer.get("sub")
+    if not peer_id:
+        raise HTTPException(status_code=400, detail="Invalid peer token")
+
+    async with get_connection() as conn:
+        cursor = await conn.execute(
+            "SELECT public_key, tunnel_ip, name, allowed_ips FROM peers WHERE id = ? AND revoked = 0",
+            (int(peer_id),),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Peer not found or revoked")
+
+    # ── WireGuard dump stats (transfer, handshake, quality) ──────────────────
+    wg_peers = _get_wg_peer_stats_raw()
+    wg_info = next((p for p in wg_peers if p["public_key"] == row["public_key"]), None)
+
+    # ── Endpoint from `wg show wg0` (not in dump format) ────────────────────
+    wg_container = _os.getenv("WG_CONTAINER", "arma3-wireguard")
+    endpoint = None
+    total_wg_peers = 0
+    peer_in_wg_show = False
+    try:
+        result = _subprocess.run(
+            ["docker", "exec", wg_container, "wg", "show", "wg0"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            current_pubkey = None
+            for line in result.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("peer:"):
+                    total_wg_peers += 1
+                    current_pubkey = stripped.split("peer:", 1)[1].strip()
+                    if current_pubkey == row["public_key"]:
+                        peer_in_wg_show = True
+                elif current_pubkey == row["public_key"] and stripped.startswith("endpoint:"):
+                    endpoint = stripped.split("endpoint:", 1)[1].strip()
+    except (_subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # ── Server identity info ────────────────────────────────────────────────
+    server_pubkey = _os.getenv("WG_SERVER_PUBLIC_KEY", "")
+    server_ip = _os.getenv("WG_SERVER_IP", "")
+    wg_port = _os.getenv("WG_PORT", "51820")
+
+    handshake_ago = wg_info["last_handshake_ago"] if wg_info else None
+    has_handshake = handshake_ago is not None and handshake_ago < 300
+
+    return {
+        "peer_name": row["name"],
+        "tunnel_ip": row["tunnel_ip"],
+        "public_key_prefix": row["public_key"][:16] + "...",
+        "peer_configured_in_wg": peer_in_wg_show,
+        "total_peers_in_wg": total_wg_peers,
+        "has_recent_handshake": has_handshake,
+        "handshake_seconds_ago": handshake_ago,
+        "endpoint_seen": endpoint,
+        "rx_bytes": wg_info["rx_bytes"] if wg_info else 0,
+        "tx_bytes": wg_info["tx_bytes"] if wg_info else 0,
+        "connection_quality": wg_info["connection_quality"] if wg_info else "offline",
+        "server_public_key": server_pubkey,
+        "expected_endpoint": f"{server_ip}:{wg_port}",
+        "wg_server_ip": server_ip,
+        "wg_port": int(wg_port),
+        "server_time_utc": datetime.now(tz=timezone.utc).isoformat(),
+    }
+
 # ── POST /peers/disconnect ─────────────────────────────────────────────────────────────
 
 
