@@ -13,7 +13,7 @@ jobs:
       - name: Bootstrap wiki page via REST API
         run: |
           set -euo pipefail
-          REPO="YourGitHubUser/arma3-session-bridge"
+          REPO="Ralle1976/arma3-session-bridge"
           API_URL="https://api.github.com/repos/${REPO}/wiki/pages"
           TOKEN="${{ secrets.GITHUB_TOKEN }}"
           curl -sS -X POST -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
@@ -27,7 +27,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          REPO="YourGitHubUser/arma3-session-bridge"
+          REPO="Ralle1976/arma3-session-bridge"
           WIKI_REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.wiki.git"
           for i in $(seq 1 5); do
             if git clone "$WIKI_REMOTE" wiki-repo; then
@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           cd wiki-repo
-          git config user.name "YourGitHubUser"
+          git config user.name "Ralle1976"
           git config user.email "ralf.arnold@it-bfw.de"
 
           cat > Home.md << 'HOME'

@@ -40,6 +40,7 @@ jobs:
     if: always()
     steps:
       - name: Notify Telegram on success
+        continue-on-error: true
         if: success()
         uses: appleboy/telegram-action@master
         with:
@@ -51,6 +52,7 @@ jobs:
             Author: ${{ github.actor }}
 
       - name: Notify Telegram on failure
+        continue-on-error: true
         if: failure()
         uses: appleboy/telegram-action@master
         with:
