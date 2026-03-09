@@ -26,10 +26,12 @@ import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-import os
-import time
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+
+# Configure logging early so lifespan messages appear in docker logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(name)s - %(message)s",
+)
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,9 +114,6 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("Startup WireGuard sync failed (non-fatal): %s", exc)
 
-    # Startup WireGuard sync block will be inserted here after DB init
-    # (This block will restore peers from DB after container restart)
-
     # Record server start time for uptime calculations
     from routers.admin import set_server_start_time
 
@@ -142,13 +141,12 @@ async def lifespan(app: FastAPI):
                 pass
 
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
     title="Arma3 Session Bridge API",
-    version="0.2.1",
+    version="0.3.0",
     description="WireGuard peer management and Arma3 session tracking.",
     lifespan=lifespan,
 )
@@ -207,7 +205,7 @@ app.include_router(vpn_mode_router, prefix="/api/v1", include_in_schema=False)
 )
 async def health() -> dict:
     """Returns `{"status": "ok"}` — used by Docker health checks and monitoring."""
-    return {"status": "ok", "version": "0.2.1"}
+    return {"status": "ok", "version": "0.3.0"}
 
 
 @app.get("/api/v1/health", include_in_schema=False)
@@ -276,8 +274,6 @@ async def login(request: Request, body: LoginRequest) -> TokenResponse:
         )
 
     logger.info("Login successful: admin authenticated (IP: %s)", client_ip)
-    token = _create_token("admin", {"role": "admin"})
-    return TokenResponse(access_token=token)
     token = _create_token("admin", {"role": "admin"})
     return TokenResponse(access_token=token)
 
