@@ -17,10 +17,11 @@ services:
     ports:
       - "${WG_PORT:-51820}:51820/udp"
     healthcheck:
-      test: ["CMD", "wg", "show"]
+      test: ["CMD-SHELL", "wg show wg0 2>/dev/null | grep -q 'listening port' || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
     restart: unless-stopped
     networks:
       - arma3-net
