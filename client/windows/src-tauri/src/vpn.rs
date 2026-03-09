@@ -329,7 +329,7 @@ pub fn dump_log() -> Result<String, String> {
 ///
 /// Falls back to just `"wireguard.exe"` (PATH lookup) if the default install
 /// location does not exist (e.g. during testing on Linux CI).
-fn wireguard_is_present() -> bool {
+pub fn wireguard_is_present() -> bool {
     let candidates = [
         r"C:\Program Files\WireGuard\wireguard.exe",
         r"C:\Program Files (x86)\WireGuard\wireguard.exe",
@@ -346,7 +346,7 @@ fn wireguard_is_present() -> bool {
         .unwrap_or(false)
 }
 
-fn wireguard_exe_path() -> String {
+pub fn wireguard_exe_path() -> String {
     let candidates = [
         r"C:\Program Files\WireGuard\wireguard.exe",
         r"C:\Program Files (x86)\WireGuard\wireguard.exe",

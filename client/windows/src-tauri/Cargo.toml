@@ -1,6 +1,6 @@
 [package]
 name = "arma3-session-bridge-client"
-version = "0.1.0"
+version = "0.4.0"
 description = "Arma 3 Session Bridge — Windows Client (Tauri v2)"
 authors = ["YourGitHubUser <ralf.arnold@it-bfw.de>"]
 license = "MIT"
@@ -32,7 +32,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Async HTTP client — rustls avoids OpenSSL dependency
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 
 # Async runtime — tokio::time for heartbeat interval
 tokio = { version = "1", features = ["time"] }
