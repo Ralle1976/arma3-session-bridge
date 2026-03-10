@@ -20,7 +20,8 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 from pydantic import BaseModel
 
 from auth import get_admin_user

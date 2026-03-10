@@ -10,7 +10,8 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 from pydantic import BaseModel, Field
 
 from database import get_connection

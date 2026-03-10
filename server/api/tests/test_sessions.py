@@ -13,7 +13,7 @@ import os
 import pytest
 from datetime import datetime, timedelta, timezone
 from httpx import AsyncClient, ASGITransport
-from jose import jwt
+import jwt
 
 # ---------------------------------------------------------------------------
 # Environment setup — MUST happen before importing the app

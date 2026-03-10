@@ -44,7 +44,7 @@ def _issue_peer_token(peer_id: int) -> str:
     """Issue a JWT for peer authentication (sessions, heartbeats)."""
     import os as _os
     from datetime import timedelta as _timedelta
-    from jose import jwt as _jwt
+    import jwt as _jwt
 
     payload = {
         "sub": str(peer_id),
@@ -687,7 +687,7 @@ async def register_peer(
                 if auth_header.startswith("Bearer "):
                     # Try to decode the token and verify it matches this peer
                     try:
-                        from jose import jwt as _jwt
+                        import jwt as _jwt
 
                         token_payload = _jwt.decode(
                             auth_header[7:],

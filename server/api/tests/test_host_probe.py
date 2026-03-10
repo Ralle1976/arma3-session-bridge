@@ -5,7 +5,7 @@ import time
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from jose import jwt
+import jwt
 
 from database import get_connection, init_db
 from main import app

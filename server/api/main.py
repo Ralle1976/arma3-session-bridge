@@ -43,7 +43,7 @@ from models import TokenResponse, LoginRequest
 # Auth helpers (JWT)
 # ---------------------------------------------------------------------------
 
-from jose import jwt, JWTError
+import jwt
 from passlib.context import CryptContext
 
 JWT_SECRET = os.getenv("JWT_SECRET", "")

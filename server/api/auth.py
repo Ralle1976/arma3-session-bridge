@@ -20,7 +20,8 @@ from typing import Annotated
 from fastapi import Depends, Header, HTTPException, status
 from database import get_connection
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError as JWTError
 
 JWT_SECRET = os.getenv("JWT_SECRET", "")
 JWT_ALGORITHM = "HS256"
