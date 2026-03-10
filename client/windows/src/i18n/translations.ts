@@ -124,6 +124,10 @@ export const translations = {
     diag_fix_install: 'WireGuard installieren',
     diag_fixing: 'Wird behoben...',
     diag_no_results: "Klicke auf 'Tiefendiagnose starten' für eine vollständige Analyse.",
+    // VPN State Machine events
+    vpnReconnecting: 'Verbindet neu...',
+    vpnReconnectAttempt: (n: number) => `Versuch ${n}`,
+    vpnStateError: 'Verbindungsfehler',
   },
   en: {
     // Wizard
@@ -248,6 +252,10 @@ export const translations = {
     diag_fix_install: 'Install WireGuard',
     diag_fixing: 'Fixing...',
     diag_no_results: "Click 'Run Deep Diagnosis' for a full analysis.",
+    // VPN State Machine events
+    vpnReconnecting: 'Reconnecting...',
+    vpnReconnectAttempt: (n: number) => `Attempt ${n}`,
+    vpnStateError: 'Connection error',
   }
 };
 

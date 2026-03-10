@@ -24,7 +24,15 @@ const WG_TUNNEL_NAME =
   import.meta.env.VITE_WG_TUNNEL_NAME ?? 'arma3-session-bridge'
 
 type ActiveTab = 'sessions' | 'host' | 'diagnose'
-type VpnStatus = 'connected' | 'disconnected' | 'connecting'
+type VpnStatus = 'connected' | 'disconnected' | 'connecting' | 'reconnecting' | 'error'
+
+// Normalized payload from the Rust VPN state machine (vpn-state-changed event)
+interface VpnStateEvent {
+  state: string     // 'Connected' | 'Disconnected' | 'Connecting' | 'Reconnecting' | 'Error: ...'
+  reason: string    // human-readable reason for the transition
+  attempt: number   // reconnect attempt count (0 when not reconnecting)
+  timestamp_ms: number
+}
 
 // ─── App Component ──────────────────────────────────────────────────────────
 
@@ -55,6 +63,8 @@ function App() {
     success: boolean
     error: string | null
   } | null>(null)
+  const [vpnStateReason, setVpnStateReason] = useState<string>('')
+  const [vpnReconnectAttempt, setVpnReconnectAttempt] = useState<number>(0)
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -181,6 +191,26 @@ function App() {
       setVpnStatus('disconnected')
     })
 
+    // Subscribe to unified vpn-state-changed events from the state machine.
+    // Updates UI state deterministically without polling.
+    const unlisten_state_changed = listen<VpnStateEvent>('vpn-state-changed', (event) => {
+      const { state, reason, attempt } = event.payload
+      setVpnStateReason(reason)
+      setVpnReconnectAttempt(attempt)
+      if (state === 'Connected') {
+        setVpnStatus('connected')
+      } else if (state === 'Reconnecting') {
+        setVpnStatus('reconnecting')
+      } else if (state.startsWith('Error')) {
+        setVpnStatus('error')
+        setVpnError(state.replace(/^Error:\s*/, ''))
+      } else if (state === 'Disconnected') {
+        setVpnStatus('disconnected')
+      } else if (state === 'Connecting') {
+        setVpnStatus('connecting')
+      }
+    })
+
     const interval = setInterval(checkStatus, 30_000)
 
     return () => {
@@ -189,6 +219,7 @@ function App() {
       unlisten_disconnect.then((f) => f())
       unlisten_reconnected.then((f) => f())
       unlisten_reconnect_failed.then((f) => f())
+      unlisten_state_changed.then((f) => f())
     }
   }, [configValid, checkStatus, connect, disconnect])
 
@@ -365,13 +396,16 @@ function App() {
         </div>
       )}
 
-      {/* VPN Status Bar (persistent, visible when connected) */}
-      {vpnStatus === 'connected' && (
+      {/* VPN Status Bar (visible when connected, reconnecting, or error) */}
+      {(vpnStatus === 'connected' || vpnStatus === 'reconnecting' || vpnStatus === 'error') && (
         <VpnStatusBar
           tunnelIp={tunnelIp}
           vpnMode={vpnMode}
           peerName={peerName}
           connectionStartTime={connectionStartTime}
+          reconnectAttempt={vpnReconnectAttempt}
+          stateReason={vpnStateReason}
+          degraded={vpnStatus !== 'connected'}
         />
       )}
 
