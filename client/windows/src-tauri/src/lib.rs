@@ -52,6 +52,9 @@ pub struct AppState {
     /// Path to the active WireGuard .conf file, `None` if disconnected.
     /// Used by the background auto-reconnect task.
     pub active_conf_path: Arc<AsyncMutex<Option<String>>>,
+    /// VPN lifecycle state machine — single source of truth for VPN state.
+    /// Gates heartbeat and reconnect loops; emits `vpn-state-changed` events.
+    pub vpn_sm: Arc<AsyncMutex<crate::vpn_state::VpnStateMachine>>,
 }
 
 // ─── Session Struct ────────────────────────────────────────────────────────────
@@ -1644,8 +1647,17 @@ pub fn run() {
                 Arc::new(AsyncMutex::new(None));
             let reconnect_arc = Arc::clone(&conf_path_arc);
 
-            // ── Spawn auto-heartbeat task ──────────────────────────────────────
-            // Sends PUT /sessions/{id}/heartbeat every 60 s while session is active.
+            // ── VPN State Machine Arc (shared with both background tasks) ─────────
+            let vpn_sm_arc: Arc<AsyncMutex<crate::vpn_state::VpnStateMachine>> =
+                Arc::new(AsyncMutex::new(crate::vpn_state::VpnStateMachine::new()));
+            let heartbeat_sm_arc = Arc::clone(&vpn_sm_arc);
+            let reconnect_sm_arc = Arc::clone(&vpn_sm_arc);
+
+            // ── Spawn auto-heartbeat task ──────────────────────────────────
+            // Sends PUT /sessions/{id}/heartbeat every 60 s, gated by VPN state.
+            // Heartbeat only runs when state machine reports should_heartbeat() == true
+            // (i.e., state is Connected). This prevents spurious heartbeats during
+            // reconnect or after disconnect.
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(
                     std::time::Duration::from_secs(60),
@@ -1653,6 +1665,15 @@ pub fn run() {
                 interval.tick().await;
                 loop {
                     interval.tick().await;
+                    // ── State gate: skip heartbeat unless Connected ────────────────
+                    let should_beat = {
+                        let sm = heartbeat_sm_arc.lock().await;
+                        sm.should_heartbeat()
+                    };
+                    if !should_beat {
+                        continue;
+                    }
+                    // ── Session ID check ─────────────────────────────────────
                     let sid_opt = {
                         let lock = heartbeat_arc.lock().await;
                         lock.clone()
@@ -1673,8 +1694,10 @@ pub fn run() {
                 }
             });
 
-            // ── Spawn auto-reconnect task ──────────────────────────────────────
-            // Every 30 s: if conf_path is set but tunnel not running → reconnect.
+            // ── Spawn auto-reconnect task ──────────────────────────────────
+            // Every 30 s: if conf_path is set and state machine allows reconnect
+            // (Disconnected or Error), and tunnel is not running → attempt reconnect.
+            // Emits `vpn-state-changed` with normalized payload after each attempt.
             let reconnect_app = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(
@@ -1683,6 +1706,15 @@ pub fn run() {
                 interval.tick().await; // skip first tick
                 loop {
                     interval.tick().await;
+                    // ── State gate: only attempt reconnect from Disconnected or Error ──
+                    let should_try = {
+                        let sm = reconnect_sm_arc.lock().await;
+                        sm.should_reconnect()
+                    };
+                    if !should_try {
+                        continue;
+                    }
+                    // ── Conf path check ────────────────────────────────────
                     let conf_opt = {
                         let lock = reconnect_arc.lock().await;
                         lock.clone()
@@ -1694,13 +1726,36 @@ pub fn run() {
                             .unwrap_or("arma3-session-bridge")
                             .to_string();
                         if !vpn::check_vpn_status(&tunnel_name).map(|s| s.connected).unwrap_or(false) {
+                            // Transition state machine to Reconnecting (from Disconnected/Error)
+                            {
+                                let mut sm = reconnect_sm_arc.lock().await;
+                                let _ = sm.transition(crate::vpn_state::VpnIntent::Reconnect);
+                                let payload = sm.event_payload("auto-reconnect started");
+                                let _ = reconnect_app.emit("vpn-state-changed", payload);
+                            }
                             match vpn::connect_vpn(conf_path) {
                                 Ok(()) => {
                                     let ip = vpn::get_tunnel_ip()
                                         .unwrap_or_else(|_| "reconnected".to_string());
+                                    // Mark connected in state machine and emit event
+                                    {
+                                        let mut sm = reconnect_sm_arc.lock().await;
+                                        let _ = sm.mark_connected();
+                                        let payload = sm.event_payload("auto-reconnected");
+                                        let _ = reconnect_app.emit("vpn-state-changed", payload);
+                                    }
+                                    // Also emit legacy event for backwards compat
                                     let _ = reconnect_app.emit("vpn-reconnected", ip);
                                 }
                                 Err(e) => {
+                                    // Mark error in state machine and emit event
+                                    {
+                                        let mut sm = reconnect_sm_arc.lock().await;
+                                        sm.mark_error(e.clone());
+                                        let payload = sm.event_payload("auto-reconnect failed");
+                                        let _ = reconnect_app.emit("vpn-state-changed", payload);
+                                    }
+                                    // Also emit legacy event for backwards compat
                                     let _ = reconnect_app.emit("vpn-reconnect-failed", e);
                                 }
                             }
@@ -1765,6 +1820,7 @@ pub fn run() {
                 tray_id,
                 active_session_id: session_arc,
                 active_conf_path: conf_path_arc,
+                vpn_sm: vpn_sm_arc,
             });
 
             Ok(())

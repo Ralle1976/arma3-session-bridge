@@ -87,7 +87,7 @@ fn state_machine_enforces_disconnect_before_reconnect_path() {
     let mut sm = VpnStateMachine::new();
     // Drive to Connected
     sm.transition(VpnIntent::Connect).unwrap();
-    sm.mark_connected();
+    sm.mark_connected().unwrap();
     assert!(matches!(sm.state(), VpnState::Connected));
     // Reconnect from Connected → must go through Reconnecting first
     let r = sm.transition(VpnIntent::Reconnect);
@@ -103,7 +103,7 @@ fn state_machine_disconnect_from_connected_transitions_to_disconnected() {
     use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnState, VpnStateMachine};
     let mut sm = VpnStateMachine::new();
     sm.transition(VpnIntent::Connect).unwrap();
-    sm.mark_connected();
+    sm.mark_connected().unwrap();
     sm.transition(VpnIntent::Disconnect).unwrap();
     assert!(
         matches!(sm.state(), VpnState::Disconnecting | VpnState::Disconnected),
@@ -122,5 +122,84 @@ fn state_machine_error_can_reconnect() {
     assert!(
         matches!(sm.state(), VpnState::Reconnecting | VpnState::Connecting),
         "After Reconnect from Error state must be Reconnecting or Connecting, got: {:?}", sm.state()
+    );
+}
+
+// ── Task 3: Timer Gating Tests ──────────────────────────────────────────────
+
+#[test]
+fn heartbeat_only_runs_when_connected() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+
+    // Disconnected — no heartbeat
+    assert!(
+        !sm.should_heartbeat(),
+        "should_heartbeat() must return false from Disconnected"
+    );
+
+    // Connecting — still no heartbeat
+    sm.transition(VpnIntent::Connect).unwrap();
+    assert!(
+        !sm.should_heartbeat(),
+        "should_heartbeat() must return false from Connecting"
+    );
+
+    // Connected — heartbeat allowed
+    sm.mark_connected().unwrap();
+    assert!(
+        sm.should_heartbeat(),
+        "should_heartbeat() must return true from Connected"
+    );
+
+    // Error — no heartbeat
+    sm.mark_error("test error".to_string());
+    assert!(
+        !sm.should_heartbeat(),
+        "should_heartbeat() must return false from Error"
+    );
+}
+
+#[test]
+fn reconnect_loop_skips_when_connecting_or_diagnosing() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+
+    // Disconnected — reconnect allowed (auto-reconnect can try)
+    // (This is controlled by conf_path being set — state machine just guards attempt timing)
+
+    // Connecting — reconnect must NOT be triggered to prevent race
+    sm.transition(VpnIntent::Connect).unwrap();
+    assert!(
+        !sm.should_reconnect(),
+        "should_reconnect() must return false while Connecting"
+    );
+
+    // Connected — reconnect not needed
+    sm.mark_connected().unwrap();
+    assert!(
+        !sm.should_reconnect(),
+        "should_reconnect() must return false while Connected"
+    );
+
+    // Diagnose intent from Connected does not change state
+    let _ = sm.transition(VpnIntent::Diagnose);
+    assert!(
+        !sm.should_reconnect(),
+        "should_reconnect() must return false while Diagnosing (Connected state)"
+    );
+
+    // Error — reconnect should be attempted
+    sm.mark_error("handshake timeout".to_string());
+    assert!(
+        sm.should_reconnect(),
+        "should_reconnect() must return true from Error"
+    );
+
+    // Reconnecting — must NOT trigger another reconnect (already in progress)
+    sm.transition(VpnIntent::Reconnect).unwrap();
+    assert!(
+        !sm.should_reconnect(),
+        "should_reconnect() must return false while already Reconnecting"
     );
 }
