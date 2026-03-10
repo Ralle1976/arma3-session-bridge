@@ -262,19 +262,18 @@ fn run_tunnel(
         .status();
 
     // ── Step 5: Build boringtun Tunn ─────────────────────────────────────────
-    // boringtun 0.5 takes owned StaticSecret/PublicKey (not Arc).
+    // boringtun 0.7 takes owned StaticSecret/PublicKey; new() returns Tunn directly (not Result<Box>).
     let static_private = StaticSecret::from(config.private_key_bytes);
     let peer_public = PublicKey::from(config.peer_public_key_bytes);
 
-    let tunn = Tunn::new(
+    let mut tunn = Tunn::new(
         static_private,
         peer_public,
         None,              // preshared key
         config.keepalive,  // persistent keepalive (seconds)
         0,                 // peer index
         None,              // external rate limiter
-    )
-    .map_err(|e| format!("boringtun Tunn::new failed: {e}"))?;
+    );
 
     // ── Step 6: Bind UDP socket ───────────────────────────────────────────────
     let udp = UdpSocket::bind("0.0.0.0:0")
