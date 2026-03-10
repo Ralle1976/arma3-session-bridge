@@ -36,6 +36,11 @@ jobs:
         working-directory: client/windows
         run: npm ci
 
+      - name: Run Rust regression tests (VPN state machine)
+        working-directory: client/windows/src-tauri
+        run: cargo test --test vpn_test -- --nocapture
+
+
       - name: Build Tauri v2 Windows Client (NSIS)
         working-directory: client/windows
         run: npm run tauri build
