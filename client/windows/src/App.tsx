@@ -13,6 +13,8 @@ import type { Session } from './components/SessionList'
 import type { OnlinePeer } from './components/OnlinePlayersList'
 import './App.css'
 import { DiagnosePanel } from './components/DiagnosePanel'
+import { VpnStateTimeline } from './components/VpnStateTimeline'
+import type { VpnStateEvent as VpnStateEventType } from './components/VpnStateTimeline'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -26,13 +28,9 @@ const WG_TUNNEL_NAME =
 type ActiveTab = 'sessions' | 'host' | 'diagnose'
 type VpnStatus = 'connected' | 'disconnected' | 'connecting' | 'reconnecting' | 'error'
 
-// Normalized payload from the Rust VPN state machine (vpn-state-changed event)
-interface VpnStateEvent {
-  state: string     // 'Connected' | 'Disconnected' | 'Connecting' | 'Reconnecting' | 'Error: ...'
-  reason: string    // human-readable reason for the transition
-  attempt: number   // reconnect attempt count (0 when not reconnecting)
-  timestamp_ms: number
-}
+// VpnStateEvent is imported from VpnStateTimeline (VpnStateEventType)
+// Use the same type for both Tauri event payload and history array
+type VpnStateEvent = VpnStateEventType
 
 // ─── App Component ──────────────────────────────────────────────────────────
 
@@ -65,6 +63,7 @@ function App() {
   } | null>(null)
   const [vpnStateReason, setVpnStateReason] = useState<string>('')
   const [vpnReconnectAttempt, setVpnReconnectAttempt] = useState<number>(0)
+  const [vpnStateHistory, setVpnStateHistory] = useState<VpnStateEventType[]>([])
   // ── VPN actions ─────────────────────────────────────────────────────
 
   const connect = useCallback(async () => {
@@ -194,9 +193,12 @@ function App() {
     // Subscribe to unified vpn-state-changed events from the state machine.
     // Updates UI state deterministically without polling.
     const unlisten_state_changed = listen<VpnStateEvent>('vpn-state-changed', (event) => {
-      const { state, reason, attempt } = event.payload
+      const { state, reason, attempt, timestamp_ms } = event.payload
       setVpnStateReason(reason)
       setVpnReconnectAttempt(attempt)
+      // Prepend to history (newest-first), cap at 100 entries
+      setVpnStateHistory(prev => [{ state, reason, attempt, timestamp_ms }, ...prev].slice(0, 100))
+
       if (state === 'Connected') {
         setVpnStatus('connected')
       } else if (state === 'Reconnecting') {
@@ -463,7 +465,15 @@ function App() {
             onSessionCleared={() => setHostedSessionId(null)}
           />
         ) : (
-          <DiagnosePanel vpnConnected={vpnStatus === 'connected'} tunnelIp={tunnelIp} />
+          <>
+            <DiagnosePanel vpnConnected={vpnStatus === 'connected'} tunnelIp={tunnelIp} />
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+              <VpnStateTimeline
+                events={vpnStateHistory}
+                onClear={() => setVpnStateHistory([])}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>

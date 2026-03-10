@@ -15,6 +15,7 @@ pub mod tunnel;
 #[cfg(target_os = "windows")]
 pub mod native_ping;
 pub mod vpn_state;
+pub mod support_bundle;
 
 
 // Platform-independent ping shim: on Windows uses native ICMP, elsewhere always None.
@@ -1851,7 +1852,19 @@ pub fn run() {
             deep_diagnose,
             fix_reconnect_vpn,
             fix_reregister_peer,
+            create_support_bundle,
         ])
+
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ─── Support Bundle Command ─────────────────────────────────────────────────
+
+/// Create a redacted support bundle and return the file path.
+#[tauri::command]
+async fn create_support_bundle() -> Result<support_bundle::SupportBundleResult, String> {
+    tokio::task::spawn_blocking(support_bundle::create_support_bundle)
+        .await
+        .map_err(|e| format!("Task join error: {e}"))?
 }

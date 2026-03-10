@@ -1,9 +1,12 @@
 /// DiagnosePanel.tsx — Deep VPN Diagnostics (complete rewrite)
 /// Replaces the 7-point checklist with a full deep-diagnostic UI.
 
-import { type ReactNode, type CSSProperties, useState, useCallback } from 'react'
+import { type ReactNode, type CSSProperties, useState, useCallback, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useTranslation } from '../i18n/LanguageContext'
+import { buildRecoveryQueue, type GuidanceEntry } from './vpnErrorCatalog'
+import { SupportBundleDialog } from './SupportBundleDialog'
+
 
 // ─── Backend Types ────────────────────────────────────────────────────────────
 
@@ -498,6 +501,192 @@ function OverallBanner({
   )
 }
 
+// ─── GuidedRecoveryPanel ───────────────────────────────────────────────────────
+
+const CONFIDENCE_STYLE: Record<GuidanceEntry['confidence'], { color: string; icon: string }> = {
+  high:   { color: 'var(--green, #4ade80)',  icon: '⚡' },
+  medium: { color: 'var(--yellow, #f59e0b)', icon: '💡' },
+  low:    { color: 'var(--text-muted)',       icon: '❓' },
+}
+
+function GuidedRecoveryPanel({
+  queue,
+  fixingAction,
+  onFix,
+  tr,
+}: {
+  queue: GuidanceEntry[]
+  fixingAction: string | null
+  onFix: (action: string) => void
+  tr: (key: string, fallback: string) => string
+}) {
+  const [step, setStep] = useState(0)
+
+  if (queue.length === 0) {
+    return (
+      <div style={{
+        textAlign: 'center',
+        padding: '12px 8px',
+        color: 'var(--green, #4ade80)',
+        fontSize: 13,
+      }}>
+        ✅ {tr('guidedRecovery_empty', 'No problems detected — everything looks good!')}
+      </div>
+    )
+  }
+
+  const current = queue[Math.min(step, queue.length - 1)]
+  const total = queue.length
+  const cStyle = CONFIDENCE_STYLE[current.confidence]
+
+  return (
+    <div style={{
+      background: 'rgba(59,130,246,0.05)',
+      border: '1px solid rgba(96,165,250,0.2)',
+      borderRadius: '8px',
+      padding: '12px 14px',
+      marginTop: 4,
+    }}>
+      {/* Progress indicator */}
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 10,
+      }}>
+        <span style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase' as const,
+          letterSpacing: '0.06em',
+        }}>
+          🚧 {tr('guidedRecovery_title', 'Guided Recovery')}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+          {typeof (tr as unknown as Record<string, unknown>)['guidedRecovery_step'] === 'function'
+            ? (tr as unknown as { guidedRecovery_step: (n: number, t: number) => string }).guidedRecovery_step(step + 1, total)
+            : `${step + 1} / ${total}`}
+        </span>
+      </div>
+
+      {/* Step dots */}
+      {total > 1 && (
+        <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+          {queue.map((_, i) => (
+            <button
+              key={i}
+              onClick={() => setStep(i)}
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: i === step ? 'var(--blue, #60a5fa)' : 'var(--border)',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                transition: 'background 0.15s',
+              }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Title */}
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>
+        {tr(current.titleKey, current.titleKey)}
+      </div>
+
+      {/* Message */}
+      <div style={{
+        fontSize: 12,
+        color: 'var(--text-secondary)',
+        lineHeight: 1.6,
+        marginBottom: 10,
+      }}>
+        {tr(current.messageKey, current.messageKey)}
+      </div>
+
+      {/* Confidence badge */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        marginBottom: 12,
+        fontSize: 11,
+        color: cStyle.color,
+      }}>
+        <span>{cStyle.icon}</span>
+        <span>{tr(`guidedRecovery_confidence_${current.confidence}`, current.confidence)}</span>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' as const }}>
+        {current.primaryAction && (
+          <FixButton
+            action={current.primaryAction}
+            label={tr(current.primaryActionLabelKey ?? '', current.primaryAction)}
+            icon={FIX_ICON[current.primaryAction] ?? '🔧'}
+            fixingAction={fixingAction}
+            onFix={onFix}
+          />
+        )}
+        {current.secondaryAction && (
+          <button
+            onClick={() => current.secondaryAction && onFix(current.secondaryAction)}
+            disabled={fixingAction !== null}
+            style={{
+              fontSize: 11,
+              padding: '5px 10px',
+              border: '1px solid var(--border)',
+              borderRadius: '6px',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              cursor: fixingAction !== null ? 'not-allowed' : 'pointer',
+              opacity: fixingAction !== null ? 0.5 : 1,
+            }}
+          >
+            {tr(current.secondaryActionLabelKey ?? '', current.secondaryAction ?? '')}
+          </button>
+        )}
+        {/* Skip */}
+        {total > 1 && step < total - 1 && (
+          <button
+            onClick={() => setStep(s => s + 1)}
+            style={{
+              fontSize: 11,
+              padding: '5px 10px',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              marginLeft: 'auto',
+            }}
+          >
+            {tr('guidedRecovery_skip', 'Skip')} →
+          </button>
+        )}
+        {step === total - 1 && (
+          <button
+            onClick={() => setStep(0)}
+            style={{
+              fontSize: 11,
+              padding: '5px 10px',
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--text-muted)',
+              cursor: 'pointer',
+              marginLeft: 'auto',
+            }}
+          >
+            {tr('guidedRecovery_done', 'Done')}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── DiagnosePanel ────────────────────────────────────────────────────────────
 
 function DiagnosePanel(_props: DiagnosePanelProps) {
@@ -512,6 +701,8 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
   const [copiedReport, setCopiedReport] = useState(false)
   const [wgLogCollapsed, setWgLogCollapsed]   = useState(false)
   const [configCollapsed, setConfigCollapsed] = useState(false)
+  const [bundleOpen, setBundleOpen]           = useState(false)
+
 
   // ── Deep diagnose ──────────────────────────────────────────────────────────
 
@@ -625,6 +816,13 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
   const tr = (key: string, fallback: string): string =>
     (td[key] as string | undefined) ?? fallback
 
+  // ── Guided recovery queue (recomputed when result changes) ────────────────
+  const recoveryQueue = useMemo(
+    () => buildRecoveryQueue(result?.steps ?? []),
+    [result]
+  )
+
+
   const bannerLabels: BannerLabels = {
     healthy:      tr('diag_overall_healthy',  'All OK — VPN working perfectly'),
     degraded:     tr('diag_overall_degraded', 'Degraded — {count} problem(s) found'),
@@ -664,6 +862,7 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
+    <>
     <div className="connection-info-panel" style={{ padding: '16px 20px' }}>
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -686,6 +885,14 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
         </span>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {/* Support bundle button */}
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => setBundleOpen(true)}
+            title={tr('supportBundle_title', 'Create Support Bundle')}
+          >
+            📦
+          </button>
           {/* Copy report — only visible when results exist */}
           {result !== null && (
             <button
@@ -754,6 +961,19 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
             labels={bannerLabels}
           />
 
+          {/* Guided recovery queue */}
+          {recoveryQueue.length > 0 && (
+            <>
+              <SectionDivider label={tr('guidedRecovery_title', 'Guided Recovery')} />
+              <GuidedRecoveryPanel
+                queue={recoveryQueue}
+                fixingAction={fixingAction}
+                onFix={handleFix}
+                tr={tr}
+              />
+            </>
+          )}
+
           {/* Diagnostic steps list */}
           <SectionDivider label={tr('diag_steps', 'Diagnostic Steps')} />
           <div>
@@ -800,6 +1020,10 @@ function DiagnosePanel(_props: DiagnosePanelProps) {
         </>
       )}
     </div>
+
+    {/* Support bundle dialog — sibling of panel root */}
+    <SupportBundleDialog open={bundleOpen} onClose={() => setBundleOpen(false)} />
+  </>
   )
 }
 
