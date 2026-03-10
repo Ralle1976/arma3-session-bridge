@@ -368,3 +368,52 @@ async def test_tunnel_ip_in_range(client: AsyncClient, admin_headers: dict):
     assert tunnel_ip.startswith("10.8.0."), f"Expected 10.8.0.x but got {tunnel_ip}"
     last_octet = int(tunnel_ip.split(".")[-1])
     assert 2 <= last_octet <= 20, f"Tunnel IP octet {last_octet} not in range 2-20"
+
+
+# ── Task 1: Connection Quality Policy Tests ───────────────────────────────────
+
+
+def test_connection_quality_policies_apply_expected_boundaries():
+    """Verify PLAYER and ADMIN quality policies produce deterministic labels at boundary values.
+
+    Boundary handshake ages tested: 59, 60, 179, 180, 599, 600 seconds.
+    PLAYER policy: good<=180, warning<=600, offline>600
+    ADMIN policy:  good<=60,  warning<=180, offline>180
+    """
+    from services.connection_quality import QualityPolicy, classify_quality
+
+    handshake_ages = [59, 60, 179, 180, 599, 600]
+
+    peers_route_labels = [
+        classify_quality(age, False, QualityPolicy.PLAYER)
+        for age in handshake_ages
+    ]
+    admin_route_labels = [
+        classify_quality(age, False, QualityPolicy.ADMIN)
+        for age in handshake_ages
+    ]
+
+    assert peers_route_labels == ["good", "good", "good", "good", "warning", "warning"], (
+        f"PLAYER policy produced unexpected labels: {peers_route_labels}"
+    )
+    assert admin_route_labels == ["good", "good", "warning", "warning", "offline", "offline"], (
+        f"ADMIN policy produced unexpected labels: {admin_route_labels}"
+    )
+
+
+def test_classify_quality_explicit_disconnect_always_offline():
+    """explicitly_disconnected=True must always return 'offline', regardless of handshake age."""
+    from services.connection_quality import QualityPolicy, classify_quality
+
+    for policy in (QualityPolicy.PLAYER, QualityPolicy.ADMIN):
+        assert classify_quality(0, True, policy) == "offline"
+        assert classify_quality(10, True, policy) == "offline"
+        assert classify_quality(None, True, policy) == "offline"
+
+
+def test_classify_quality_none_handshake_is_offline():
+    """last_handshake_ago=None (never connected) must return 'offline'."""
+    from services.connection_quality import QualityPolicy, classify_quality
+
+    for policy in (QualityPolicy.PLAYER, QualityPolicy.ADMIN):
+        assert classify_quality(None, False, policy) == "offline"

@@ -27,6 +27,7 @@ from auth import get_admin_user
 from database import get_connection
 from services.event_bus import subscribe, unsubscribe
 from services.peer_status import is_explicitly_disconnected
+from services.connection_quality import QualityPolicy, classify_quality
 
 logger = logging.getLogger(__name__)
 
@@ -151,14 +152,8 @@ def _parse_wg_dump(output: str) -> list[dict]:
         )
 
         # Check explicit disconnect registry first
-        if is_explicitly_disconnected(pub_key, last_handshake_ts):
-            quality = "offline"
-        elif last_handshake_ago is None or last_handshake_ago > 180:
-            quality = "offline"
-        elif last_handshake_ago > 60:
-            quality = "warning"
-        else:
-            quality = "good"
+        explicitly_disconnected = is_explicitly_disconnected(pub_key, last_handshake_ts)
+        quality = classify_quality(last_handshake_ago, explicitly_disconnected, QualityPolicy.ADMIN)
 
         peers.append(
             {
