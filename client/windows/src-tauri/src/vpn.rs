@@ -1,13 +1,19 @@
 //! vpn.rs — VPN connection management using embedded WireGuard tunnel
 //!
-//! Uses boringtun + wintun (see tunnel.rs) instead of external wireguard.exe.
-//! No external WireGuard installation required.
+//! On Windows: uses boringtun + wintun (see tunnel.rs) — no wireguard.exe needed.
+//! On other platforms: stub implementations that return errors/disconnected state.
+//! The VPN state machine (vpn_state.rs) is platform-independent.
 
-use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
+
+#[cfg(target_os = "windows")]
+use std::sync::Mutex;
+
+#[cfg(target_os = "windows")]
 use crate::tunnel::{self, EmbeddedTunnel, TunnelStats};
 
-// Global tunnel instance — thread-safe via Mutex
+/// Global tunnel instance — only meaningful on Windows.
+#[cfg(target_os = "windows")]
 static TUNNEL: Mutex<Option<EmbeddedTunnel>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +23,9 @@ pub struct VpnStatus {
     pub tunnel_name: Option<String>,
 }
 
+// ── Windows implementations ───────────────────────────────────────────────────
+
+#[cfg(target_os = "windows")]
 pub fn connect_vpn(conf_path: &str) -> Result<(), String> {
     // 1. Validate conf_path exists and is non-empty
     let content = std::fs::read_to_string(conf_path)
@@ -56,6 +65,7 @@ pub fn connect_vpn(conf_path: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 pub fn disconnect_vpn(_tunnel_name: &str) -> Result<(), String> {
     let mut lock = TUNNEL.lock().map_err(|e| format!("Lock error: {e}"))?;
     if let Some(mut tunnel) = lock.take() {
@@ -64,6 +74,7 @@ pub fn disconnect_vpn(_tunnel_name: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
     if tunnel_name.is_empty() {
         return Err("tunnel_name must not be empty".to_string());
@@ -83,6 +94,7 @@ pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_tunnel_ip() -> Result<String, String> {
     let lock = TUNNEL.lock().map_err(|e| format!("Lock error: {e}"))?;
     match &*lock {
@@ -91,12 +103,14 @@ pub fn get_tunnel_ip() -> Result<String, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_tunnel_stats() -> Option<TunnelStats> {
     let lock = TUNNEL.lock().ok()?;
     lock.as_ref().map(|t| t.get_stats())
 }
 
 /// Dump tunnel stats for diagnostics (replaces wireguard.exe /dumplog).
+#[cfg(target_os = "windows")]
 pub fn dump_log() -> Result<String, String> {
     match get_tunnel_stats() {
         Some(stats) => Ok(format!(
@@ -112,7 +126,56 @@ pub fn dump_log() -> Result<String, String> {
     }
 }
 
-// Keep tests for basic validation
+// ── Non-Windows stubs (compile-time only — enable cross-platform tests) ───────
+
+#[cfg(not(target_os = "windows"))]
+pub fn connect_vpn(conf_path: &str) -> Result<(), String> {
+    // Read and validate config even on non-Windows (shared validation logic)
+    let content = std::fs::read_to_string(conf_path)
+        .map_err(|e| format!("Config-Datei kann nicht gelesen werden: {e}"))?;
+    if content.trim().is_empty() {
+        return Err("Config-Datei ist leer".to_string());
+    }
+    if content.contains("<INSERT_PRIVATE_KEY_FROM_CREATION_RESPONSE>") {
+        return Err("Config-Datei enthält noch den PrivateKey-Platzhalter".to_string());
+    }
+    Err("VPN tunnel not supported on this platform".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn disconnect_vpn(_tunnel_name: &str) -> Result<(), String> {
+    Ok(()) // idempotent no-op
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
+    if tunnel_name.is_empty() {
+        return Err("tunnel_name must not be empty".to_string());
+    }
+    Ok(VpnStatus {
+        connected: false,
+        tunnel_ip: None,
+        tunnel_name: Some(tunnel_name.to_string()),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_tunnel_ip() -> Result<String, String> {
+    Err("Kein aktiver VPN-Tunnel".to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn get_tunnel_stats() -> Option<()> {
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn dump_log() -> Result<String, String> {
+    Ok("No active embedded WireGuard tunnel (non-Windows build)".to_string())
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,5 +201,11 @@ mod tests {
     #[test]
     fn test_get_tunnel_ip_when_not_connected() {
         assert!(get_tunnel_ip().is_err());
+    }
+
+    #[test]
+    fn test_connect_vpn_missing_conf_returns_err() {
+        let result = connect_vpn("Z:\\definitely\\missing\\arma3-session-bridge.conf");
+        assert!(result.is_err(), "Missing config path must return a user-facing error");
     }
 }

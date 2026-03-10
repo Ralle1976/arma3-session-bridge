@@ -43,13 +43,16 @@ x25519-dalek = { version = "=2.0.0-rc.3", features = ["reusable_secrets", "stati
 rand = "0.8"
 base64 = "0.22"
 
-# ── Embedded WireGuard tunnel (no external wireguard.exe needed) ─────────────
-# boringtun: pure-Rust WireGuard protocol implementation (no Linux device feature).
+# ── Embedded WireGuard tunnel (no external wireguard.exe needed) ──────────────
+# These are Windows-only because wintun is a Windows TUN driver binding.
+[target.'cfg(windows)'.dependencies]
+# boringtun: pure-Rust WireGuard protocol implementation.
 boringtun = { version = "0.5", default-features = false }
 # wintun: Rust bindings for wintun.dll — Windows user-space TUN adapter.
 wintun = "0.5"
 
-# ── Windows ICMP API for native ping (no ping.exe needed) ────────────────────
+# ── Windows ICMP API for native ping (no ping.exe needed) ────────────────
+# windows-sys bindings for IcmpSendEcho native ping (Windows-only).
 windows-sys = { version = "0.59", features = [
     "Win32_NetworkManagement_IpHelper",
     "Win32_Foundation",

@@ -10,8 +10,18 @@
 ///   - `run()` — entry point called from main.rs
 
 pub mod vpn;
+#[cfg(target_os = "windows")]
 pub mod tunnel;
+#[cfg(target_os = "windows")]
 pub mod native_ping;
+pub mod vpn_state;
+
+
+// Platform-independent ping shim: on Windows uses native ICMP, elsewhere always None.
+#[cfg(target_os = "windows")]
+use native_ping::ping as platform_ping;
+#[cfg(not(target_os = "windows"))]
+fn platform_ping(_addr: std::net::Ipv4Addr, _timeout_ms: u32) -> Option<u32> { None }
 
 use std::sync::Arc;
 
@@ -929,10 +939,10 @@ async fn ping_gateway() -> Result<PingResult, String> {
     let addr: std::net::Ipv4Addr = gateway.parse().unwrap();
 
     // Try native ICMP ping first
-    if let Some(ms) = native_ping::ping(addr, 3000) {
+    if let Some(ms) = platform_ping(addr, 3000) {
         return Ok(PingResult {
             gateway_ip: gateway.to_string(),
-            latency_ms: Some(ms),
+            latency_ms: Some(ms as u64),
             reachable: true,
         });
     }
@@ -1067,7 +1077,7 @@ async fn ping_peer(tunnel_ip: String) -> Result<PeerPingResult, String> {
     let addr: std::net::Ipv4Addr = tunnel_ip.parse()
         .map_err(|e| format!("Invalid IP: {e}"))?;
 
-    let latency_ms = native_ping::ping(addr, 5000);
+    let latency_ms = platform_ping(addr, 5000).map(|v| v as u64);
     let reachable = latency_ms.is_some();
     let packet_loss_pct: u8 = if reachable { 0 } else { 100 };
 
@@ -1314,7 +1324,7 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
     // ── Check 8: Gateway ping ────────────────────────────────────────────────
     {
         let addr: std::net::Ipv4Addr = "10.8.0.1".parse().unwrap();
-        let ms = native_ping::ping(addr, 3000);
+        let ms = platform_ping(addr, 3000);
         let reachable = ms.is_some();
         steps.push(DiagStep {
             id: "gateway_ping".into(),

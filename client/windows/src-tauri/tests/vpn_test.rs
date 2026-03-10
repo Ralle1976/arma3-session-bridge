@@ -1,18 +1,5 @@
-/// vpn_test.rs — Integration tests for VPN automation
-///
-/// These tests run on the host platform (Linux CI or Windows dev machine).
-/// They verify logic that does NOT require WireGuard to be installed:
-///   - Status check for non-existent tunnels → always returns connected=false
-///   - WireGuard path detection → returns Ok or a meaningful error
-
 use arma3_session_bridge_client::vpn;
 
-/// Verify that `check_vpn_status` on a clearly nonexistent tunnel name
-/// returns a `VpnStatus` with `connected = false` and no tunnel IP.
-///
-/// This test works on all platforms because `sc.exe` will either be absent
-/// (Linux/CI → is_tunnel_running returns false) or report the service as
-/// not found (Windows → also returns false).
 #[test]
 fn test_vpn_status_not_connected() {
     let status = vpn::check_vpn_status("definitely-nonexistent-tunnel-abc123")
@@ -34,60 +21,106 @@ fn test_vpn_status_not_connected() {
     );
 }
 
-/// Verify that `install_wireguard_if_missing` correctly detects the
-/// WireGuard executable path and returns a meaningful result.
-///
-/// On a machine without WireGuard (Linux CI), the function must:
-///   - Return `Err(msg)` where `msg` mentions "WireGuard"
-///
-/// On a Windows machine with WireGuard installed, it must:
-///   - Return `Ok(())`
-///
-/// In both cases, the function must NOT panic.
 #[test]
-fn test_wireguard_path_detection() {
-    let result = vpn::install_wireguard_if_missing();
-
-    match result {
-        Ok(()) => {
-            // WireGuard is installed — path detection worked correctly on Windows
-        }
-        Err(msg) => {
-            // Expected on Linux CI or Windows without WireGuard
-            assert!(
-                msg.to_lowercase().contains("wireguard"),
-                "Error message should mention WireGuard, got: '{msg}'"
-            );
-            assert!(
-                !msg.is_empty(),
-                "Error message must not be empty"
-            );
-        }
-    }
+fn test_disconnect_when_not_connected() {
+    let result = vpn::disconnect_vpn("any-tunnel-name");
+    assert!(result.is_ok(), "disconnect_vpn should be idempotent");
 }
 
-/// Verify that `is_tunnel_running` returns false for a nonexistent tunnel.
 #[test]
-fn test_is_tunnel_running_nonexistent() {
-    assert!(
-        !vpn::is_tunnel_running("nonexistent-tunnel-for-test-xyz"),
-        "is_tunnel_running must return false for a nonexistent service"
-    );
+fn test_get_tunnel_ip_when_not_connected() {
+    let result = vpn::get_tunnel_ip();
+    assert!(result.is_err(), "No active tunnel should return Err");
 }
 
-/// Verify that `is_tunnel_running` returns false for an empty tunnel name
-/// (guard against empty-string edge case).
-#[test]
-fn test_is_tunnel_running_empty_name() {
-    assert!(
-        !vpn::is_tunnel_running(""),
-        "is_tunnel_running must return false for empty tunnel name"
-    );
-}
-
-/// Verify that `check_vpn_status` rejects an empty tunnel name with Err.
 #[test]
 fn test_check_vpn_status_empty_name_is_err() {
     let result = vpn::check_vpn_status("");
     assert!(result.is_err(), "Empty tunnel name must return Err");
+}
+
+#[test]
+fn test_connect_vpn_missing_conf_returns_err() {
+    let result = vpn::connect_vpn("Z:\\definitely\\missing\\arma3-session-bridge.conf");
+    assert!(
+        result.is_err(),
+        "Missing config path must return a user-facing error"
+    );
+}
+
+// ── Task 2: VPN State Machine Tests ─────────────────────────────────────────
+
+#[test]
+fn state_machine_starts_disconnected() {
+    use arma3_session_bridge_client::vpn_state::{VpnState, VpnStateMachine};
+    let sm = VpnStateMachine::new();
+    assert!(
+        matches!(sm.state(), VpnState::Disconnected),
+        "New state machine must start in Disconnected state"
+    );
+    assert_eq!(sm.reconnect_attempt(), 0, "reconnect_attempt must start at 0");
+}
+
+#[test]
+fn state_machine_rejects_connect_when_already_connecting() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnState, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+    // Transition to Connecting
+    let r1 = sm.transition(VpnIntent::Connect);
+    assert!(r1.is_ok(), "First Connect from Disconnected must succeed");
+    assert!(matches!(sm.state(), VpnState::Connecting), "State must be Connecting after first Connect");
+    // Second Connect while already Connecting must be rejected
+    let r2 = sm.transition(VpnIntent::Connect);
+    assert!(
+        r2.is_err(),
+        "Connect intent while already Connecting must be rejected, got: {r2:?}"
+    );
+    assert!(
+        matches!(sm.state(), VpnState::Connecting),
+        "State must remain Connecting after rejected intent"
+    );
+}
+
+#[test]
+fn state_machine_enforces_disconnect_before_reconnect_path() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnState, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+    // Drive to Connected
+    sm.transition(VpnIntent::Connect).unwrap();
+    sm.mark_connected();
+    assert!(matches!(sm.state(), VpnState::Connected));
+    // Reconnect from Connected → must go through Reconnecting first
+    let r = sm.transition(VpnIntent::Reconnect);
+    assert!(r.is_ok(), "Reconnect from Connected must be accepted");
+    assert!(
+        matches!(sm.state(), VpnState::Reconnecting),
+        "State must be Reconnecting after Reconnect intent, got: {:?}", sm.state()
+    );
+}
+
+#[test]
+fn state_machine_disconnect_from_connected_transitions_to_disconnected() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnState, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+    sm.transition(VpnIntent::Connect).unwrap();
+    sm.mark_connected();
+    sm.transition(VpnIntent::Disconnect).unwrap();
+    assert!(
+        matches!(sm.state(), VpnState::Disconnecting | VpnState::Disconnected),
+        "Disconnect intent must move toward Disconnected, got: {:?}", sm.state()
+    );
+}
+
+#[test]
+fn state_machine_error_can_reconnect() {
+    use arma3_session_bridge_client::vpn_state::{VpnIntent, VpnState, VpnStateMachine};
+    let mut sm = VpnStateMachine::new();
+    sm.mark_error("handshake timeout".to_string());
+    assert!(matches!(sm.state(), VpnState::Error(_)));
+    let r = sm.transition(VpnIntent::Reconnect);
+    assert!(r.is_ok(), "Reconnect from Error must be accepted");
+    assert!(
+        matches!(sm.state(), VpnState::Reconnecting | VpnState::Connecting),
+        "After Reconnect from Error state must be Reconnecting or Connecting, got: {:?}", sm.state()
+    );
 }
