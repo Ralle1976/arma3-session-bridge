@@ -60,9 +60,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
-          $exe = Get-ChildItem 'client/windows/src-tauri/target/release/arma3-session-bridge-client.exe'
+          $dir = "Arma3-Session-Bridge-portable"
+          New-Item -ItemType Directory -Path $dir
+          Copy-Item 'client/windows/src-tauri/target/release/arma3-session-bridge-client.exe' $dir/
+          Copy-Item 'client/windows/src-tauri/wintun.dll' $dir/
+          $wv2 = Get-ChildItem 'client/windows/src-tauri/target/release/WebView2Loader.dll' -ErrorAction SilentlyContinue
+          if ($wv2) { Copy-Item $wv2.FullName $dir/ }
           $zipName = "Arma3.Session.Bridge_${{ github.ref_name }}_x64-portable.zip"
-          Compress-Archive -Path $exe.FullName -DestinationPath $zipName
+          Compress-Archive -Path "$dir/*" -DestinationPath $zipName
           Write-Host "Created portable ZIP: $zipName"
 
       - name: Create GitHub Release (on version tag only)

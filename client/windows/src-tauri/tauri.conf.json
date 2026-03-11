@@ -24,9 +24,13 @@
     "windows": {
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
+      "requestedExecutionLevel": "requireAdministrator",
       "nsis": {
         "installMode": "currentUser",
-        "startMenuFolder": "Arma3 Session Bridge"
+        "startMenuFolder": "Arma3 Session Bridge",
+        "webviewInstallMode": {
+          "type": "downloadBootstrapper"
+        }
       }
     },
     "resources": [
