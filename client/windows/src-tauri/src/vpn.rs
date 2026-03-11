@@ -74,33 +74,88 @@ pub fn disconnect_vpn(_tunnel_name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Scan network adapters for a 10.8.0.x address (works for both embedded wintun
+/// and official WireGuard adapters). Used as fallback when embedded tunnel is not
+/// running but the system WireGuard client may be active.
+#[cfg(target_os = "windows")]
+fn scan_adapters_for_vpn_ip() -> Option<String> {
+    use std::os::windows::process::CommandExt;
+    let output = std::process::Command::new("ipconfig")
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let t = line.trim();
+        // Match EN: "IPv4 Address. . . : 10.8.0.x" and DE: "IPv4-Adresse"
+        if (t.starts_with("IPv4") || t.starts_with("IP-Adresse")) && t.contains(':') {
+            if let Some(ip_part) = t.splitn(2, ':').nth(1) {
+                let ip = ip_part.trim()
+                    .trim_end_matches("(Preferred)")
+                    .trim_end_matches("(Bevorzugt)")
+                    .trim();
+                if ip.starts_with("10.8.0.") && ip.len() <= 12 {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(target_os = "windows")]
 pub fn check_vpn_status(tunnel_name: &str) -> Result<VpnStatus, String> {
     if tunnel_name.is_empty() {
         return Err("tunnel_name must not be empty".to_string());
     }
+    // ── 1. Embedded tunnel (boringtun + wintun) ─────────────────────────────
     let lock = TUNNEL.lock().map_err(|e| format!("Lock error: {e}"))?;
-    match &*lock {
-        Some(tunnel) => Ok(VpnStatus {
-            connected: tunnel.is_connected(),
-            tunnel_ip: if tunnel.is_connected() { Some(tunnel.tunnel_ip().to_string()) } else { None },
-            tunnel_name: Some(tunnel_name.to_string()),
-        }),
-        None => Ok(VpnStatus {
-            connected: false,
-            tunnel_ip: None,
-            tunnel_name: Some(tunnel_name.to_string()),
-        }),
+    if let Some(tunnel) = &*lock {
+        if tunnel.is_connected() {
+            return Ok(VpnStatus {
+                connected: true,
+                tunnel_ip: Some(tunnel.tunnel_ip().to_string()),
+                tunnel_name: Some(tunnel_name.to_string()),
+            });
+        }
     }
+    drop(lock);
+    // ── 2. Fallback: official WireGuard service (WireGuardTunnel$<name>) ─────
+    // Installed WireGuard registers a Windows service with this exact naming.
+    use std::os::windows::process::CommandExt;
+    let svc = format!("WireGuardTunnel${}", tunnel_name);
+    let system_running = std::process::Command::new("sc")
+        .args(["query", &svc])
+        .creation_flags(0x08000000)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("RUNNING"))
+        .unwrap_or(false);
+    if system_running {
+        return Ok(VpnStatus {
+            connected: true,
+            tunnel_ip: scan_adapters_for_vpn_ip(),
+            tunnel_name: Some(tunnel_name.to_string()),
+        });
+    }
+    Ok(VpnStatus {
+        connected: false,
+        tunnel_ip: None,
+        tunnel_name: Some(tunnel_name.to_string()),
+    })
 }
 
 #[cfg(target_os = "windows")]
 pub fn get_tunnel_ip() -> Result<String, String> {
+    // 1. Embedded tunnel
     let lock = TUNNEL.lock().map_err(|e| format!("Lock error: {e}"))?;
-    match &*lock {
-        Some(tunnel) if tunnel.is_connected() => Ok(tunnel.tunnel_ip().to_string()),
-        _ => Err("Kein aktiver VPN-Tunnel".to_string()),
+    if let Some(tunnel) = &*lock {
+        if tunnel.is_connected() {
+            return Ok(tunnel.tunnel_ip().to_string());
+        }
     }
+    drop(lock);
+    // 2. Fallback: scan all network adapters for a 10.8.0.x address
+    scan_adapters_for_vpn_ip().ok_or_else(|| "Kein aktiver VPN-Tunnel".to_string())
 }
 
 #[cfg(target_os = "windows")]

@@ -1130,6 +1130,7 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
     let mut config_sanitized: Option<String> = None;
     let mut raw_adapter_info: Option<String> = None;
     let mut server_public_key: Option<String> = None;
+    let mut server_has_recent_handshake = false;
 
     // ── Check 1: WireGuard installed ─────────────────────────────────────────
     let wg_installed = true; // Embedded WireGuard tunnel — always available
@@ -1428,6 +1429,7 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
                     suggestions.push("Re-register your device".into());
                 } else if has_handshake {
                     let ago_str = handshake_ago.map(|s| format!("{}s ago", s)).unwrap_or_else(|| "recently".into());
+                    server_has_recent_handshake = handshake_ago.map_or(true, |s| s < 300);
                     steps.push(DiagStep {
                         id: "server_peer_status".into(),
                         label: "Server peer status".into(),
@@ -1577,6 +1579,21 @@ fn deep_diagnose_sync() -> Result<DeepDiagnoseResult, String> {
                 });
             }
         }
+    }
+
+    // ── Post-process: gateway ICMP failure is not critical when server confirms tunnel ─
+    // Many WireGuard servers block ICMP pings on the tunnel interface by design.
+    // If the server confirmed a handshake within the last 5 minutes, the VPN IS working.
+    if server_has_recent_handshake {
+        for step in steps.iter_mut() {
+            if step.id == "gateway_ping" && step.status == "fail" {
+                step.status = "warn".into();
+                let prev = step.detail.clone().unwrap_or_default();
+                step.detail = Some(format!("{} — VPN protocol verified via server handshake", prev));
+                step.fix_action = None;
+            }
+        }
+        problems.retain(|p| !p.contains("Gateway 10.8.0.1 unreachable"));
     }
 
     // ── Compile overall status ───────────────────────────────────────────────
